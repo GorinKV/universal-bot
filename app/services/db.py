@@ -29,6 +29,7 @@ async def init_db() -> None:
                         type ENUM('task', 'idea') DEFAULT 'task',
                         title TEXT NOT NULL,
                         status ENUM('todo', 'done') DEFAULT 'todo',
+                        due_at DATETIME NULL,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         done_at DATETIME NULL,
                         INDEX idx_user_status (user_id, status)

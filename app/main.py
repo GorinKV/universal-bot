@@ -1,4 +1,4 @@
-"""Точка входа: aiogram 3, long polling."""
+"""Точка входа: aiogram 3, long polling, планировщик."""
 
 import asyncio
 import logging
@@ -13,16 +13,17 @@ from app.bot.handlers import router
 from app.config import settings
 from app.services.health import log_startup_info
 from app.services.db import init_db, close_db
+from app.services.scheduler import start_scheduler, stop_scheduler
 
 logger = logging.getLogger(__name__)
 
 async def set_commands(bot: Bot) -> None:
     await bot.set_my_commands([
         BotCommand(command="start", description="Начать работу"),
-        BotCommand(command="tasks", description="Активные задачи"),
-        BotCommand(command="ideas", description="Список идей"),
+        BotCommand(command="tasks", description="Задачи"),
+        BotCommand(command="ideas", description="Идеи"),
         BotCommand(command="help", description="Справка"),
-        BotCommand(command="health", description="Проверка компонентов"),
+        BotCommand(command="health", description="Проверка"),
     ])
 
 async def main() -> None:
@@ -39,6 +40,10 @@ async def main() -> None:
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
+    
+    # Запускаем планировщик
+    start_scheduler(bot)
+
     dp = Dispatcher()
     dp.include_router(router)
 
@@ -49,6 +54,7 @@ async def main() -> None:
     try:
         await dp.start_polling(bot)
     finally:
+        stop_scheduler()
         await close_db()
         await bot.session.close()
 
