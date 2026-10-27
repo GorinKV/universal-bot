@@ -1,7 +1,6 @@
 """Работа с таблицей items (задачи и идеи)."""
-import asyncmy
 
-from datetime import datetime
+import asyncmy
 from app.services.db import get_pool
 
 async def add(user_id: int, title: str, item_type: str = 'task') -> int:
@@ -68,7 +67,6 @@ async def undo_by_position(user_id: int, pos: int) -> bool:
     pool = get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
-            # Получаем ID задачи по её позиции в списке выполненных
             await cur.execute(
                 "SELECT id FROM items WHERE user_id=%s AND status='done' "
                 "ORDER BY done_at DESC LIMIT 1 OFFSET %s",
@@ -101,3 +99,16 @@ async def clear_all(user_id: int) -> int:
         async with conn.cursor() as cur:
             await cur.execute("DELETE FROM items WHERE user_id=%s", (user_id,))
             return cur.rowcount
+
+async def get_ideas(user_id: int) -> list[dict]:
+    """Все идеи пользователя (и активные, и выполненные)."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor(asyncmy.cursors.DictCursor) as cur:
+            await cur.execute(
+                "SELECT id, title, status, DATE_FORMAT(created_at, '%%d.%%m') as dt "
+                "FROM items WHERE user_id=%s AND type='idea' "
+                "ORDER BY status ASC, id ASC",
+                (user_id,)
+            )
+            return await cur.fetchall()

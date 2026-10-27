@@ -20,9 +20,7 @@ async def cmd_start(message: Message) -> None:
         "📋 <b>Задачи:</b>\n"
         "/task &lt;текст&gt; — добавить задачу\n"
         "/tasks — активные задачи\n"
-        "/all — все задачи\n"
-        "/done &lt;ID&gt; — выполнить\n"
-        "/del &lt;ID&gt; — удалить\n"
+        "/ideas — список идей\n"
         "/help — полная справка"
     )
 
@@ -33,6 +31,7 @@ async def cmd_help(message: Message) -> None:
         "<b>Задачи и идеи:</b>\n"
         "/task &lt;текст&gt; — создать задачу\n"
         "/idea &lt;текст&gt; — сохранить идею\n"
+        "/ideas — список идей\n"
         "/tasks — активные\n"
         "/all — все\n"
         "/completed — выполненные\n"
@@ -63,7 +62,7 @@ async def cmd_reset(message: Message) -> None:
         gigachat.reset_history(message.from_user.id)
     await message.answer("🧹 Контекст ИИ сброшен.")
 
-# --- ЗАДАЧИ ---
+# --- ЗАДАЧИ И ИДЕИ ---
 
 @router.message(Command("task", "idea"))
 async def cmd_add_item(message: Message, command: CommandObject) -> None:
@@ -74,6 +73,27 @@ async def cmd_add_item(message: Message, command: CommandObject) -> None:
     item_id = await items.add(message.from_user.id, command.args, item_type)
     icon = '💡' if item_type == 'idea' else '✅'
     await message.answer(f"{icon} Добавлено (ID: <code>{item_id}</code>)")
+
+@router.message(Command("ideas"))
+async def cmd_ideas(message: Message) -> None:
+    ideas = await items.get_ideas(message.from_user.id)
+    if not ideas:
+        await message.answer("💡 Идей пока нет. Добавь: /idea <текст>")
+        return
+
+    active = [i for i in ideas if i["status"] == "todo"]
+    done = [i for i in ideas if i["status"] == "done"]
+
+    text = "<b>💡 Идеи:</b>\n\n"
+    if active:
+        text += "\n".join(f"[{i['id']}] {i['title']}" for i in active) + "\n"
+    if done:
+        if active:
+            text += "\n<b>Выполненные:</b>\n"
+        text += "\n".join(
+            f"~[{i['id']}] {i['title']}~ ({i['dt']})" for i in done
+        )
+    await message.answer(text)
 
 @router.message(Command("tasks", "all"))
 async def cmd_list(message: Message, command: CommandObject) -> None:
@@ -124,9 +144,9 @@ async def cmd_done(message: Message, command: CommandObject) -> None:
         await message.answer("Использование: /done <ID>")
         return
     if await items.mark_done(message.from_user.id, int(command.args)):
-        await message.answer("✅ Задача выполнена!")
+        await message.answer("✅ Выполнено!")
     else:
-        await message.answer("⚠️ Задача не найдена или уже выполнена.")
+        await message.answer("⚠️ Не найдено или уже выполнено.")
 
 @router.message(Command("undo"))
 async def cmd_undo(message: Message, command: CommandObject) -> None:
@@ -134,9 +154,9 @@ async def cmd_undo(message: Message, command: CommandObject) -> None:
         await message.answer("Использование: /undo <номер в списке выполненных>")
         return
     if await items.undo_by_position(message.from_user.id, int(command.args)):
-        await message.answer("🔄 Задача возвращена в активные.")
+        await message.answer("🔄 Возвращено в активные.")
     else:
-        await message.answer("⚠️ Задача с таким номером не найдена.")
+        await message.answer("⚠️ Не найдено.")
 
 @router.message(Command("del"))
 async def cmd_del(message: Message, command: CommandObject) -> None:

@@ -19,8 +19,9 @@ logger = logging.getLogger(__name__)
 async def set_commands(bot: Bot) -> None:
     await bot.set_my_commands([
         BotCommand(command="start", description="Начать работу"),
-        BotCommand(command="help", description="Справка"),
         BotCommand(command="tasks", description="Активные задачи"),
+        BotCommand(command="ideas", description="Список идей"),
+        BotCommand(command="help", description="Справка"),
         BotCommand(command="health", description="Проверка компонентов"),
     ])
 
@@ -32,7 +33,7 @@ async def main() -> None:
     )
     log_startup_info()
 
-    await init_db()  # <- Инициализация БД
+    await init_db()
 
     bot = Bot(
         token=settings.bot_token,
