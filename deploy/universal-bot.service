@@ -1,0 +1,27 @@
+[Unit]
+Description=Universal Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kvg
+Group=kvg
+WorkingDirectory=/home/kvg/universal-bot
+EnvironmentFile=/home/kvg/universal-bot/.env
+ExecStart=/home/kvg/universal-bot/.venv/bin/python -m app.main
+Restart=on-failure
+RestartSec=5
+MemoryMax=300M
+StandardOutput=journal
+StandardError=journal
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target
+
