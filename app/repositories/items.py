@@ -112,3 +112,27 @@ async def get_ideas(user_id: int) -> list[dict]:
                 (user_id,)
             )
             return await cur.fetchall()
+
+async def find_by_position(user_id: int, pos: int) -> dict | None:
+    """Найти активную задачу по позиции (1-based)."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor(asyncmy.cursors.DictCursor) as cur:
+            await cur.execute(
+                "SELECT id, title FROM items WHERE user_id=%s AND status='todo' "
+                "ORDER BY id ASC LIMIT 1 OFFSET %s",
+                (user_id, pos - 1)
+            )
+            return await cur.fetchone()
+
+async def find_by_title(user_id: int, title: str) -> dict | None:
+    """Найти активную задачу по части названия."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor(asyncmy.cursors.DictCursor) as cur:
+            await cur.execute(
+                "SELECT id, title FROM items WHERE user_id=%s AND status='todo' "
+                "AND title LIKE %s ORDER BY id ASC LIMIT 1",
+                (user_id, f"%{title}%")
+            )
+            return await cur.fetchone()
