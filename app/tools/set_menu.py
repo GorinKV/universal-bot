@@ -2,11 +2,13 @@
 
 import json
 import urllib.request
+
 from app.config import settings
+
 
 def main() -> None:
     url = f"https://api.telegram.org/bot{settings.bot_token}/setMyCommands"
-    
+
     payload = {
         "commands": [
             {"command": "start", "description": "Начать работу"},
@@ -16,11 +18,11 @@ def main() -> None:
             {"command": "health", "description": "Проверка компонентов"}
         ]
     }
-    
+
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
-        url, 
-        data=data, 
+        url,
+        data=data,
         headers={"Content-Type": "application/json"}
     )
 

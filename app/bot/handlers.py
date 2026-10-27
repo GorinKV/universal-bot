@@ -4,12 +4,14 @@ from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
-from app.services import gigachat, whisper
-from app.services.health import collect_health
+from app.config import settings
 from app.repositories import items
-from app.config import settings 
+from app.services import gigachat, whisper
+from app.services.backup import create_and_send_backup
+from app.services.health import collect_health
 
 router = Router()
+
 
 @router.message(Command("start"))
 async def cmd_start(message: Message) -> None:
@@ -24,6 +26,7 @@ async def cmd_start(message: Message) -> None:
         "/ideas — список идей\n"
         "/help — полная справка"
     )
+
 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
@@ -48,20 +51,35 @@ async def cmd_help(message: Message) -> None:
         "/health — проверка систем."
     )
 
+
 @router.message(Command("chatid"))
 async def cmd_chatid(message: Message) -> None:
     uid = message.from_user.id if message.from_user else "?"
     await message.answer(f"chat_id: <code>{message.chat.id}</code>\nuser_id: <code>{uid}</code>")
 
+
 @router.message(Command("health"))
 async def cmd_health(message: Message) -> None:
     await message.answer(await collect_health())
+
 
 @router.message(Command("reset"))
 async def cmd_reset(message: Message) -> None:
     if message.from_user:
         gigachat.reset_history(message.from_user.id)
     await message.answer("🧹 Контекст ИИ сброшен.")
+
+
+@router.message(Command("backup"))
+async def cmd_backup(message: Message, bot: Bot) -> None:
+    # Проверка, что команду вызвал именно админ
+    if message.from_user.id != settings.admin_id:
+        await message.answer("⛔️ У вас нет прав на это действие.")
+        return
+
+    await message.answer("⏳ Создаю бэкап базы и кода...")
+    await create_and_send_backup(bot)
+
 
 # --- ЗАДАЧИ И ИДЕИ ---
 
@@ -74,6 +92,7 @@ async def cmd_add_item(message: Message, command: CommandObject) -> None:
     item_id = await items.add(message.from_user.id, command.args, item_type)
     icon = '💡' if item_type == 'idea' else '✅'
     await message.answer(f"{icon} Добавлено (ID: <code>{item_id}</code>)")
+
 
 @router.message(Command("ideas"))
 async def cmd_ideas(message: Message) -> None:
@@ -95,6 +114,7 @@ async def cmd_ideas(message: Message) -> None:
             f"~[{i['id']}] {i['title']}~ ({i['dt']})" for i in done
         )
     await message.answer(text)
+
 
 @router.message(Command("tasks", "all"))
 async def cmd_list(message: Message, command: CommandObject) -> None:
@@ -124,20 +144,25 @@ async def cmd_list(message: Message, command: CommandObject) -> None:
         )
         await message.answer(text)
 
+
 @router.message(Command("completed", "month", "year"))
 async def cmd_done_list(message: Message, command: CommandObject) -> None:
     period = command.command
-    data = await items.get_list(message.from_user.id, 'done') if period == 'completed' else await items.get_by_period(message.from_user.id, period)
-    
+    if period == 'completed':
+        data = await items.get_list(message.from_user.id, 'done')
+    else:
+        data = await items.get_by_period(message.from_user.id, period)
+
     titles = {"completed": "Выполненные", "month": "За этот месяц", "year": "За этот год"}
     if not data:
         await message.answer(f"📭 {titles[period]}: пусто.")
         return
-    
+
     text = f"<b>✅ {titles[period]}:</b>\n\n" + "\n".join(
         f"[{i['id']}] {i['title']} ({i['dt']})" for i in data
     )
     await message.answer(text)
+
 
 @router.message(Command("done"))
 async def cmd_done(message: Message, command: CommandObject) -> None:
@@ -149,6 +174,7 @@ async def cmd_done(message: Message, command: CommandObject) -> None:
     else:
         await message.answer("⚠️ Не найдено или уже выполнено.")
 
+
 @router.message(Command("undo"))
 async def cmd_undo(message: Message, command: CommandObject) -> None:
     if not command.args or not command.args.isdigit():
@@ -158,6 +184,7 @@ async def cmd_undo(message: Message, command: CommandObject) -> None:
         await message.answer("🔄 Возвращено в активные.")
     else:
         await message.answer("⚠️ Не найдено.")
+
 
 @router.message(Command("del"))
 async def cmd_del(message: Message, command: CommandObject) -> None:
@@ -169,10 +196,12 @@ async def cmd_del(message: Message, command: CommandObject) -> None:
     else:
         await message.answer("⚠️ Не найдено.")
 
+
 @router.message(Command("clear"))
 async def cmd_clear(message: Message) -> None:
     count = await items.clear_all(message.from_user.id)
     await message.answer(f"🗑 Удалено задач: {count}")
+
 
 # --- ГОЛОС И ИИ ---
 
@@ -193,6 +222,7 @@ async def handle_voice(message: Message, bot: Bot) -> None:
     except RuntimeError as e:
         await status_msg.edit_text(f"⚠️ {e}")
 
+
 @router.message(F.text & ~F.text.startswith("/"))
 async def handle_free_text(message: Message) -> None:
     if not message.text or not message.from_user:
@@ -203,16 +233,3 @@ async def handle_free_text(message: Message) -> None:
         await message.answer(answer)
     except RuntimeError as e:
         await message.answer(f"⚠️ {e}")
-
-from app.services.backup import create_and_send_backup
-
-@router.message(Command("backup"))
-async def cmd_backup(message: Message, bot: Bot) -> None:
-    # Проверка, что команду вызвал именно админ
-    if message.from_user.id != settings.admin_id:
-        await message.answer("⛔️ У вас нет прав на это действие.")
-        return
-    
-    await message.answer("⏳ Создаю бэкап базы и кода...")
-    await create_and_send_backup(bot)
-

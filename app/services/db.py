@@ -1,7 +1,9 @@
 """Подключение к MariaDB и инициализация схемы."""
 
 import logging
+
 import asyncmy
+
 from app.config import settings
 
 logger = logging.getLogger(__name__)

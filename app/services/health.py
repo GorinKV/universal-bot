@@ -3,9 +3,10 @@
 import logging
 import platform
 from datetime import datetime
+
 import psutil
 
-from app.services import gigachat, whisper, db
+from app.services import db, gigachat, whisper
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ async def collect_health() -> str:
     lines.append(f"   RAM VPS: {vm.used / 1048576:.0f} / {vm.total / 1048576:.0f} MB")
 
     lines.append("")
-    
+
     ok_ai, detail_ai = await gigachat.ping()
     lines.append("✅ <b>GigaChat</b>: отвечает" if ok_ai else f"❌ <b>GigaChat</b>: {detail_ai}")
 

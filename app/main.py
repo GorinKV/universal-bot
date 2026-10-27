@@ -11,8 +11,8 @@ from aiogram.types import BotCommand
 
 from app.bot.handlers import router
 from app.config import settings
+from app.services.db import close_db, init_db
 from app.services.health import log_startup_info
-from app.services.db import init_db, close_db
 from app.services.scheduler import start_scheduler, stop_scheduler
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ async def main() -> None:
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    
+
     # Запускаем планировщик
     start_scheduler(bot)
 

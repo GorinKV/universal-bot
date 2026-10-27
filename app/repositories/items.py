@@ -1,7 +1,9 @@
 """Работа с таблицей items (задачи и идеи)."""
 
 import asyncmy
+
 from app.services.db import get_pool
+
 
 async def add(user_id: int, title: str, item_type: str = 'task') -> int:
     pool = get_pool()
@@ -43,7 +45,7 @@ async def get_by_period(user_id: int, period: str) -> list[dict]:
                 where = "YEAR(done_at)=YEAR(NOW())"
             else:
                 where = "DATE(done_at)=CURDATE()"
-            
+
             await cur.execute(
                 f"SELECT id, title, DATE_FORMAT(done_at, '%%d.%%m') as dt "
                 f"FROM items WHERE user_id=%s AND status='done' AND {where} "
@@ -76,7 +78,7 @@ async def undo_by_position(user_id: int, pos: int) -> bool:
             if not row:
                 return False
             item_id = row[0]
-            
+
             await cur.execute(
                 "UPDATE items SET status='todo', done_at=NULL WHERE id=%s",
                 (item_id,)

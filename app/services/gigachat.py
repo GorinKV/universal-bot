@@ -172,13 +172,15 @@ async def _execute_function(user_id: int, name: str, arguments: dict) -> dict:
     try:
         if name == "create_task":
             title = arguments.get("title", "").strip()
-            if not title: return {"status": "error", "message": "Пустой текст"}
+            if not title:
+                return {"status": "error", "message": "Пустой текст"}
             item_id = await items.add(user_id, title, item_type="task")
             return {"status": "success", "id": item_id, "title": title}
 
         if name == "create_idea":
             title = arguments.get("title", "").strip()
-            if not title: return {"status": "error", "message": "Пустой текст"}
+            if not title:
+                return {"status": "error", "message": "Пустой текст"}
             item_id = await items.add(user_id, title, item_type="idea")
             return {"status": "success", "id": item_id, "title": title}
 
@@ -194,13 +196,15 @@ async def _execute_function(user_id: int, name: str, arguments: dict) -> dict:
             else:
                 data = await items.get_list(user_id, 'todo')
                 lines = [f"[{i['id']}] {i['title']}" + (" 💡" if i.get('type') == 'idea' else "") for i in data]
-            
-            if not lines: return {"status": "success", "result": "Список пуст."}
+
+            if not lines:
+                return {"status": "success", "result": "Список пуст."}
             return {"status": "success", "result": "\n".join(lines)}
 
         if name == "get_ideas":
             ideas = await items.get_ideas(user_id)
-            if not ideas: return {"status": "success", "result": "Идей нет."}
+            if not ideas:
+                return {"status": "success", "result": "Идей нет."}
             lines = [f"[{i['id']}] {i['title']}" for i in ideas]
             return {"status": "success", "result": "\n".join(lines)}
 
@@ -212,9 +216,10 @@ async def _execute_function(user_id: int, name: str, arguments: dict) -> dict:
                 item = await items.find_by_position(user_id, int(position))
             elif title:
                 item = await items.find_by_title(user_id, str(title))
+
             if not item:
                 return {"status": "error", "message": "Задача не найдена"}
-            
+
             if name == "mark_task_done":
                 await items.mark_done(user_id, item["id"])
                 return {"status": "success", "title": item["title"]}
@@ -224,9 +229,11 @@ async def _execute_function(user_id: int, name: str, arguments: dict) -> dict:
 
         if name == "undo_task":
             position = arguments.get("position")
-            if not position: return {"status": "error", "message": "Не указана позиция"}
+            if not position:
+                return {"status": "error", "message": "Не указана позиция"}
             ok = await items.undo_by_position(user_id, int(position))
-            if not ok: return {"status": "error", "message": "Задача не найдена"}
+            if not ok:
+                return {"status": "error", "message": "Задача не найдена"}
             return {"status": "success"}
 
         if name == "clear_tasks":
@@ -269,8 +276,10 @@ async def ask(user_id: int, text: str) -> str:
             raw_args = message.function_call.arguments
 
             if isinstance(raw_args, str):
-                try: arguments = json.loads(raw_args)
-                except json.JSONDecodeError: arguments = {}
+                try:
+                    arguments = json.loads(raw_args)
+                except json.JSONDecodeError:
+                    arguments = {}
             else:
                 arguments = raw_args or {}
 
@@ -295,7 +304,8 @@ async def ask(user_id: int, text: str) -> str:
         else:
             answer = message.content or ""
 
-        if not answer: answer = "Готово."
+        if not answer:
+            answer = "Готово."
 
     except Exception as e:
         logger.exception("GigaChat: ошибка запроса")
@@ -310,11 +320,16 @@ async def ask(user_id: int, text: str) -> str:
 
 
 async def ping() -> tuple[bool, str]:
-    if not is_configured(): return False, "не настроен"
+    if not is_configured():
+        return False, "не настроен"
     try:
         client = _get_client()
         response = await asyncio.to_thread(
-            client.chat, Chat(messages=[Messages(role=MessagesRole.USER, content="ок")], max_tokens=10)
+            client.chat,
+            Chat(
+                messages=[Messages(role=MessagesRole.USER, content="ок")],
+                max_tokens=10,
+            ),
         )
         _ = response.choices[0].message.content
         return True, "ok"
