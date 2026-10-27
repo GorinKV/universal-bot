@@ -10,6 +10,7 @@ from aiogram import Bot
 from aiogram.types import Voice
 
 from app.config import settings
+from app.services.asr_fix import fix_text
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,6 @@ async def transcribe_voice(bot: Bot, voice: Voice) -> str:
                 raise RuntimeError("Ошибка ffmpeg при конвертации")
 
             # 3. Распознаём через whisper-cli
-            # -nt : без таймкодов, -l ru : язык русский, -np : без вывода прогресса
             whisper_cmd = [
                 settings.whisper_cli,
                 "-m", settings.whisper_model,
@@ -76,6 +76,11 @@ async def transcribe_voice(bot: Bot, voice: Voice) -> str:
                 raise RuntimeError("Ошибка whisper-cli")
 
             # Чистим вывод от лишних пробелов
-            text = stdout.decode("utf-8").strip()
-            logger.info("Распознано: %s", text)
+            raw_text = stdout.decode("utf-8").strip()
+            logger.info("Сырой текст ASR: %s", raw_text)
+
+            # 4. Постобработка (словарь ошибок)
+            text = fix_text(raw_text)
+            logger.info("Исправленный текст: %s", text)
+
             return text
