@@ -1,9 +1,10 @@
-"""Базовые команды бота."""
-from aiogram import F, Router
-from app.services import gigachat
+"""Базовые команды бота и обработка сообщений."""
+
+from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
+from app.services import gigachat, whisper
 from app.services.health import collect_health
 
 router = Router()
@@ -19,8 +20,8 @@ async def cmd_start(message: Message) -> None:
         "📋 <b>Команды:</b>\n"
         "/help — справка\n"
         "/chatid — узнать свой chat_id\n"
-        "/health — проверка компонентов бота\n"
-        "/reset — сбросить контекст диалога\n\n"
+        "/health — проверка компонентов\n"
+        "/reset — сбросить контекст диалога"
     )
 
 
@@ -32,13 +33,12 @@ async def cmd_help(message: Message) -> None:
         "/start — приветствие\n"
         "/help — эта справка\n"
         "/chatid — узнать свой chat_id\n"
-        "/health — проверка компонентов бота\n\n"
+        "/health — проверка компонентов\n"
+        "/reset — сбросить контекст\n\n"
+        "<b>Голос:</b> просто отправь голосовое сообщение.\n\n"
         "<b>Скоро:</b>\n"
-        "• диалог с ИИ (Ф1b)\n"
-        "• голосовой ввод (Ф2)\n"
         "• задачи и идеи (Ф3–Ф4)\n"
-        "• автоматические отчёты (Ф5)\n"
-        "• git-автокоммиты (Ф6)"
+        "• автоматические отчёты (Ф5)"
     )
 
 
@@ -64,6 +64,34 @@ async def cmd_reset(message: Message) -> None:
     await message.answer("🧹 Контекст сброшен.")
 
 
+@router.message(F.voice)
+async def handle_voice(message: Message, bot: Bot) -> None:
+    if not message.voice or not message.from_user:
+        return
+
+    status_msg = await message.answer("🎤 Слушаю и распознаю...")
+    await bot.send_chat_action(message.chat.id, "typing")
+
+    try:
+        # 1. Распознаем
+        text = await whisper.transcribe_voice(bot, message.voice)
+        
+        if not text:
+            await status_msg.edit_text("🤷 Не удалось разобрать речь.")
+            return
+
+        await status_msg.edit_text(f"🗣 <i>«{text}»</i>\n\n⏳ Думаю...")
+
+        # 2. Отправляем в ИИ
+        answer = await gigachat.ask(message.from_user.id, text)
+        await message.answer(answer)
+
+    except RuntimeError as e:
+        await status_msg.edit_text(f"⚠️ {e}")
+    except Exception:
+        await status_msg.edit_text("⚠️ Внутренняя ошибка при обработке голоса.")
+
+
 @router.message(F.text & ~F.text.startswith("/"))
 async def handle_free_text(message: Message) -> None:
     if not message.text or not message.from_user:
@@ -76,4 +104,3 @@ async def handle_free_text(message: Message) -> None:
         await message.answer(f"⚠️ {e}")
     except Exception:
         await message.answer("⚠️ Внутренняя ошибка, попробуй позже.")
-

@@ -6,6 +6,8 @@ from datetime import datetime
 
 import psutil
 
+from app.services import gigachat, whisper
+
 logger = logging.getLogger(__name__)
 
 
@@ -34,13 +36,11 @@ async def collect_health() -> str:
     """Возвращает отчёт о состоянии компонентов в HTML для Telegram."""
     lines: list[str] = ["<b>🏥 Проверка компонентов</b>", ""]
 
-    # Процесс
     proc = psutil.Process()
     mem_mb = proc.memory_info().rss / 1024 / 1024
     uptime = str(datetime.now() - datetime.fromtimestamp(proc.create_time())).split(".")[0]
     lines.append(f"✅ <b>Процесс</b>: жив · RAM {mem_mb:.0f} MB · uptime {uptime}")
 
-    # Система
     vm = psutil.virtual_memory()
     lines.append(
         f"   RAM VPS: {vm.used / 1024 / 1024:.0f} / "
@@ -54,16 +54,18 @@ async def collect_health() -> str:
         )
 
     lines.append("")
-    from app.services import gigachat
-
+    
     ok, detail = await gigachat.ping()
     if ok:
         lines.append("✅ <b>GigaChat</b>: отвечает")
     else:
         lines.append(f"❌ <b>GigaChat</b>: {detail}")
 
-    lines.append("⏸ <b>whisper</b>: не настроен (Ф2)")
+    if whisper.is_configured():
+        lines.append("✅ <b>whisper</b>: настроен (CLI)")
+    else:
+        lines.append("❌ <b>whisper</b>: не найден (проверьте пути в .env)")
+
     lines.append("⏸ <b>MariaDB</b>: не настроена (Ф3)")
 
     return "\n".join(lines)
-

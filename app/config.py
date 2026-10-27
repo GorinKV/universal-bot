@@ -18,10 +18,14 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
-    # GigaChat (Ф1b)
+    # GigaChat
     gigachat_credentials: str = ""
     gigachat_scope: str = "GIGACHAT_API_PERS"
-    gigachat_model: str = "GigaChat"
+    gigachat_model: str = "GigaChat-2"
+
+    # Whisper (Ф2)
+    whisper_cli: str = "/home/kvg/whisper.cpp/build/bin/whisper-cli"
+    whisper_model: str = "/home/kvg/whisper.cpp/models/ggml-base.bin"
 
     # MariaDB (Ф3)
     db_host: str = "127.0.0.1"
@@ -32,4 +36,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-
