@@ -54,7 +54,14 @@ async def collect_health() -> str:
         )
 
     lines.append("")
-    lines.append("⏸ <b>GigaChat</b>: не настроен (Ф1b)")
+    from app.services import gigachat
+
+    ok, detail = await gigachat.ping()
+    if ok:
+        lines.append("✅ <b>GigaChat</b>: отвечает")
+    else:
+        lines.append(f"❌ <b>GigaChat</b>: {detail}")
+
     lines.append("⏸ <b>whisper</b>: не настроен (Ф2)")
     lines.append("⏸ <b>MariaDB</b>: не настроена (Ф3)")
 

@@ -19,8 +19,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # GigaChat (Ф1b)
-    gigachat_client_id: str = ""
-    gigachat_client_secret: str = ""
+    gigachat_credentials: str = ""
+    gigachat_scope: str = "GIGACHAT_API_PERS"
+    gigachat_model: str = "GigaChat"
 
     # MariaDB (Ф3)
     db_host: str = "127.0.0.1"

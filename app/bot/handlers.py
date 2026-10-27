@@ -1,6 +1,6 @@
 """Базовые команды бота."""
-
-from aiogram import Router
+from aiogram import F, Router
+from app.services import gigachat
 from aiogram.filters import Command
 from aiogram.types import Message
 
@@ -19,7 +19,8 @@ async def cmd_start(message: Message) -> None:
         "📋 <b>Команды:</b>\n"
         "/help — справка\n"
         "/chatid — узнать свой chat_id\n"
-        "/health — проверка компонентов"
+        "/health — проверка компонентов бота\n"
+        "/reset — сбросить контекст диалога\n\n"
     )
 
 
@@ -54,4 +55,25 @@ async def cmd_chatid(message: Message) -> None:
 async def cmd_health(message: Message) -> None:
     report = await collect_health()
     await message.answer(report)
+
+
+@router.message(Command("reset"))
+async def cmd_reset(message: Message) -> None:
+    if message.from_user:
+        gigachat.reset_history(message.from_user.id)
+    await message.answer("🧹 Контекст сброшен.")
+
+
+@router.message(F.text & ~F.text.startswith("/"))
+async def handle_free_text(message: Message) -> None:
+    if not message.text or not message.from_user:
+        return
+    await message.bot.send_chat_action(message.chat.id, "typing")
+    try:
+        answer = await gigachat.ask(message.from_user.id, message.text)
+        await message.answer(answer)
+    except RuntimeError as e:
+        await message.answer(f"⚠️ {e}")
+    except Exception:
+        await message.answer("⚠️ Внутренняя ошибка, попробуй позже.")
 

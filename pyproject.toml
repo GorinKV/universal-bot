@@ -8,6 +8,7 @@ license = { text = "MIT" }
 authors = [{ name = "Konstantin Gorin", email = "gorinkv@users.noreply.github.com" }]
 dependencies = [
     "aiogram>=3.13,<4",
+    "gigachat>=0.1.20",
     "pydantic-settings>=2.5",
     "psutil>=6.0",
     "python-dotenv>=1.0",

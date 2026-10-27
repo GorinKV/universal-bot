@@ -44,7 +44,7 @@ chmod 600 .env
 /help Справка
 /chatid Узнать свой chat_id
 /health Проверка компонентов
-
+/reset Сбросить контекст диалога 
 🗺️ Roadmap
 
 ☑ Ф1a — каркас, базовые команды, healthcheck
