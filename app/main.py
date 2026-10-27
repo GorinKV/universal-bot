@@ -12,21 +12,17 @@ from aiogram.types import BotCommand
 from app.bot.handlers import router
 from app.config import settings
 from app.services.health import log_startup_info
+from app.services.db import init_db, close_db
 
 logger = logging.getLogger(__name__)
 
-
 async def set_commands(bot: Bot) -> None:
-    """Регистрирует команды в меню Telegram."""
-    await bot.set_my_commands(
-        [
-            BotCommand(command="start", description="Начать работу"),
-            BotCommand(command="help", description="Справка"),
-            BotCommand(command="chatid", description="Мой chat_id"),
-            BotCommand(command="health", description="Проверка компонентов"),
-        ]
-    )
-
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Начать работу"),
+        BotCommand(command="help", description="Справка"),
+        BotCommand(command="tasks", description="Активные задачи"),
+        BotCommand(command="health", description="Проверка компонентов"),
+    ])
 
 async def main() -> None:
     logging.basicConfig(
@@ -36,6 +32,8 @@ async def main() -> None:
     )
     log_startup_info()
 
+    await init_db()  # <- Инициализация БД
+
     bot = Bot(
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
@@ -44,18 +42,17 @@ async def main() -> None:
     dp.include_router(router)
 
     await set_commands(bot)
-    bot.delete_webhook(drop_pending_updates=True)
+    await bot.delete_webhook(drop_pending_updates=True)
     logger.info("Бот запущен, начинаю long polling")
 
     try:
         await dp.start_polling(bot)
     finally:
+        await close_db()
         await bot.session.close()
-
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         logger.info("Остановлено")
-
