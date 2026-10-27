@@ -6,6 +6,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.config import settings
 from app.services import reports
+from app.services.backup import create_and_send_backup
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
@@ -29,6 +30,11 @@ async def send_daily_report(bot, report_type: str):
 
 def start_scheduler(bot):
     """Регистрирует задачи по времени."""
+    # 04:00 Бэкап всего
+    scheduler.add_job(
+        create_and_send_backup, CronTrigger(hour=4, minute=0),
+        args=[bot], id="daily_backup"
+    )
     # 07:00 Утренний дайджест
     scheduler.add_job(
         send_daily_report, CronTrigger(hour=7, minute=0),

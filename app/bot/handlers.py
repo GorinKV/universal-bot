@@ -7,6 +7,7 @@ from aiogram.types import Message
 from app.services import gigachat, whisper
 from app.services.health import collect_health
 from app.repositories import items
+from app.config import settings 
 
 router = Router()
 
@@ -202,3 +203,16 @@ async def handle_free_text(message: Message) -> None:
         await message.answer(answer)
     except RuntimeError as e:
         await message.answer(f"⚠️ {e}")
+
+from app.services.backup import create_and_send_backup
+
+@router.message(Command("backup"))
+async def cmd_backup(message: Message, bot: Bot) -> None:
+    # Проверка, что команду вызвал именно админ
+    if message.from_user.id != settings.admin_id:
+        await message.answer("⛔️ У вас нет прав на это действие.")
+        return
+    
+    await message.answer("⏳ Создаю бэкап базы и кода...")
+    await create_and_send_backup(bot)
+
