@@ -72,11 +72,9 @@ async def cmd_reset(message: Message) -> None:
 
 @router.message(Command("backup"))
 async def cmd_backup(message: Message, bot: Bot) -> None:
-    # Проверка, что команду вызвал именно админ
     if message.from_user.id != settings.admin_id:
         await message.answer("⛔️ У вас нет прав на это действие.")
         return
-
     await message.answer("⏳ Создаю бэкап базы и кода...")
     await create_and_send_backup(bot)
 
@@ -124,7 +122,8 @@ async def cmd_list(message: Message, command: CommandObject) -> None:
         text = "<b>📋 Все задачи:</b>\n\n"
         if todo:
             text += "<b>Активные:</b>\n" + "\n".join(
-                f"[{i['id']}] {i['title']}" for i in todo
+                f"[{i['id']}] {i['title']}" + (f" (до {i['due']})" if i.get('due') else "")
+                for i in todo
             ) + "\n\n"
         if done:
             text += "<b>Выполненные:</b>\n" + "\n".join(
@@ -139,7 +138,7 @@ async def cmd_list(message: Message, command: CommandObject) -> None:
             await message.answer("🎉 Нет активных задач!")
             return
         text = "<b>📋 Активные задачи:</b>\n\n" + "\n".join(
-            f"[{i['id']}] {i['title']}" + (" 💡" if i['type'] == 'idea' else "")
+            f"[{i['id']}] {i['title']}" + (f" (до {i['due']})" if i.get('due') else "") + (" 💡" if i['type'] == 'idea' else "")
             for i in todo
         )
         await message.answer(text)
