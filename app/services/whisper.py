@@ -31,15 +31,16 @@ async def transcribe_voice(bot: Bot, voice: Voice) -> str:
         raise RuntimeError("whisper не настроен (проверьте пути в .env)")
 
     async with _semaphore:
-        # 1. Скачиваем голосовое во временную папку
         with tempfile.TemporaryDirectory() as tmpdir:
             oga_path = os.path.join(tmpdir, "voice.oga")
             wav_path = os.path.join(tmpdir, "voice.wav")
 
             file = await bot.get_file(voice.file_id)
+            if not file.file_path:
+                raise RuntimeError("Не удалось получить путь к файлу от Telegram")
+
             await bot.download_file(file.file_path, oga_path)
 
-            # 2. Конвертируем в 16kHz mono wav (требование whisper)
             ffmpeg_cmd = [
                 "ffmpeg", "-y", "-i", oga_path,
                 "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
@@ -54,7 +55,6 @@ async def transcribe_voice(bot: Bot, voice: Voice) -> str:
             if proc.returncode != 0:
                 raise RuntimeError("Ошибка ffmpeg при конвертации")
 
-            # 3. Распознаём через whisper-cli
             whisper_cmd = [
                 settings.whisper_cli,
                 "-m", settings.whisper_model,
@@ -75,11 +75,9 @@ async def transcribe_voice(bot: Bot, voice: Voice) -> str:
                 logger.error("whisper-cli stderr: %s", stderr.decode())
                 raise RuntimeError("Ошибка whisper-cli")
 
-            # Чистим вывод от лишних пробелов
             raw_text = stdout.decode("utf-8").strip()
             logger.info("Сырой текст ASR: %s", raw_text)
 
-            # 4. Постобработка (словарь ошибок)
             text = fix_text(raw_text)
             logger.info("Исправленный текст: %s", text)
 

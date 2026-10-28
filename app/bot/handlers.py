@@ -1,4 +1,5 @@
 """Обработчики команд и сообщений."""
+
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
@@ -44,6 +45,8 @@ async def cmd_help(message: Message) -> None:
         "/undo &lt;N&gt; — вернуть N-ю из выполненных\n"
         "/del &lt;ID&gt; — удалить\n"
         "/clear — удалить всё\n\n"
+        "<b>Git:</b>\n"
+        "/git — справка по командам\n\n"
         "<b>Голос:</b> просто отправь голосовое.\n"
         "<b>ИИ:</b> любой текст не-команда уходит в GigaChat.\n"
         "/reset — сбросить контекст ИИ.\n"
@@ -71,7 +74,7 @@ async def cmd_reset(message: Message) -> None:
 
 @router.message(Command("backup"))
 async def cmd_backup(message: Message, bot: Bot) -> None:
-    if message.from_user.id != settings.admin_id:
+    if not message.from_user or message.from_user.id != settings.admin_id:
         await message.answer("⛔️ У вас нет прав на это действие.")
         return
     await message.answer("⏳ Создаю бэкап базы и кода...")
@@ -82,17 +85,21 @@ async def cmd_backup(message: Message, bot: Bot) -> None:
 
 @router.message(Command("task", "idea"))
 async def cmd_add_item(message: Message, command: CommandObject) -> None:
+    if not message.from_user:
+        return
     if not command.args:
         await message.answer(f"Использование: /{command.command} <текст>")
         return
     item_type = 'idea' if command.command == 'idea' else 'task'
-    item_id = await items.add(message.from_user.id, command.args, item_type)
+    item_id = await items.add(message.from_user.id, command.args, item_type)  # type: ignore
     icon = '💡' if item_type == 'idea' else '✅'
     await message.answer(f"{icon} Добавлено (ID: <code>{item_id}</code>)")
 
 
 @router.message(Command("ideas"))
 async def cmd_ideas(message: Message) -> None:
+    if not message.from_user:
+        return
     ideas = await items.get_ideas(message.from_user.id)
     if not ideas:
         await message.answer("💡 Идей пока нет. Добавь: /idea <текст>")
@@ -115,6 +122,8 @@ async def cmd_ideas(message: Message) -> None:
 
 @router.message(Command("tasks", "all"))
 async def cmd_list(message: Message, command: CommandObject) -> None:
+    if not message.from_user:
+        return
     if command.command == 'all':
         todo = await items.get_list(message.from_user.id, 'todo')
         done = await items.get_list(message.from_user.id, 'done')
@@ -145,6 +154,8 @@ async def cmd_list(message: Message, command: CommandObject) -> None:
 
 @router.message(Command("completed", "month", "year"))
 async def cmd_done_list(message: Message, command: CommandObject) -> None:
+    if not message.from_user:
+        return
     period = command.command
     if period == 'completed':
         data = await items.get_list(message.from_user.id, 'done')
@@ -164,6 +175,8 @@ async def cmd_done_list(message: Message, command: CommandObject) -> None:
 
 @router.message(Command("done"))
 async def cmd_done(message: Message, command: CommandObject) -> None:
+    if not message.from_user:
+        return
     if not command.args or not command.args.isdigit():
         await message.answer("Использование: /done <ID>")
         return
@@ -175,6 +188,8 @@ async def cmd_done(message: Message, command: CommandObject) -> None:
 
 @router.message(Command("undo"))
 async def cmd_undo(message: Message, command: CommandObject) -> None:
+    if not message.from_user:
+        return
     if not command.args or not command.args.isdigit():
         await message.answer("Использование: /undo <номер в списке выполненных>")
         return
@@ -186,6 +201,8 @@ async def cmd_undo(message: Message, command: CommandObject) -> None:
 
 @router.message(Command("del"))
 async def cmd_del(message: Message, command: CommandObject) -> None:
+    if not message.from_user:
+        return
     if not command.args or not command.args.isdigit():
         await message.answer("Использование: /del <ID>")
         return
@@ -197,47 +214,17 @@ async def cmd_del(message: Message, command: CommandObject) -> None:
 
 @router.message(Command("clear"))
 async def cmd_clear(message: Message) -> None:
+    if not message.from_user:
+        return
     count = await items.clear_all(message.from_user.id)
     await message.answer(f"🗑 Удалено задач: {count}")
-
-
-# --- ГОЛОС И ИИ ---
-
-@router.message(F.voice)
-async def handle_voice(message: Message, bot: Bot) -> None:
-    if not message.voice or not message.from_user:
-        return
-    status_msg = await message.answer("🎤 Слушаю...")
-    await bot.send_chat_action(message.chat.id, "typing")
-    try:
-        text = await whisper.transcribe_voice(bot, message.voice)
-        if not text:
-            await status_msg.edit_text("🤷 Не удалось разобрать речь.")
-            return
-        await status_msg.edit_text(f"🗣 <i>«{text}»</i>\n\n⏳ Думаю...")
-        answer = await gigachat.ask(message.from_user.id, text)
-        await message.answer(answer)
-    except RuntimeError as e:
-        await status_msg.edit_text(f"⚠️ {e}")
-
-
-@router.message(F.text & ~F.text.startswith("/"))
-async def handle_free_text(message: Message) -> None:
-    if not message.text or not message.from_user:
-        return
-    await message.bot.send_chat_action(message.chat.id, "typing")
-    try:
-        answer = await gigachat.ask(message.from_user.id, message.text)
-        await message.answer(answer)
-    except RuntimeError as e:
-        await message.answer(f"⚠️ {e}")
 
 
 # --- GIT УПРАВЛЕНИЕ ---
 
 @router.message(Command("git"))
 async def cmd_git(message: Message, command: CommandObject) -> None:
-    if message.from_user.id != settings.admin_id:
+    if not message.from_user or message.from_user.id != settings.admin_id:
         await message.answer("⛔️ Управление Git доступно только админу.")
         return
 
@@ -261,7 +248,6 @@ async def cmd_git(message: Message, command: CommandObject) -> None:
             await message.answer("Укажи путь: /git add /home/kvg/myproject")
             return
         path = args[1].strip()
-        # Проверяем, что это git-репо
         if not await git_manager.is_git_repo(path):
             await message.answer("❌ Это не git-репозиторий или путь не существует.")
             return
@@ -310,7 +296,6 @@ async def cmd_git(message: Message, command: CommandObject) -> None:
                 await message.answer(f"⚠️ Ошибка коммита в {p['path']}")
 
     elif action == "auto":
-        # Аналогично commit, но для крона (без вывода в чат)
         projects = await git_projects.get_projects(message.from_user.id)
         for p in projects:
             status = await git_manager.get_status(p['path'])
@@ -329,3 +314,35 @@ async def cmd_git(message: Message, command: CommandObject) -> None:
             await message.answer("⚠️ Не найдено.")
     else:
         await message.answer("Неизвестная команда. Напиши /git для справки.")
+
+
+# --- ГОЛОС И ИИ ---
+
+@router.message(F.voice)
+async def handle_voice(message: Message, bot: Bot) -> None:
+    if not message.voice or not message.from_user:
+        return
+    status_msg = await message.answer("🎤 Слушаю...")
+    await bot.send_chat_action(message.chat.id, "typing")
+    try:
+        text = await whisper.transcribe_voice(bot, message.voice)
+        if not text:
+            await status_msg.edit_text("🤷 Не удалось разобрать речь.")
+            return
+        await status_msg.edit_text(f"🗣 <i>«{text}»</i>\n\n⏳ Думаю...")
+        answer = await gigachat.ask(message.from_user.id, text)
+        await message.answer(answer)
+    except RuntimeError as e:
+        await status_msg.edit_text(f"⚠️ {e}")
+
+
+@router.message(F.text & ~F.text.startswith("/"))
+async def handle_free_text(message: Message) -> None:
+    if not message.text or not message.from_user:
+        return
+    await message.bot.send_chat_action(message.chat.id, "typing")
+    try:
+        answer = await gigachat.ask(message.from_user.id, message.text)
+        await message.answer(answer)
+    except RuntimeError as e:
+        await message.answer(f"⚠️ {e}")

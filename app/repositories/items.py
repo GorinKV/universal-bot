@@ -1,5 +1,7 @@
 """Работа с таблицей items (задачи и идеи)."""
 
+from typing import cast
+
 import asyncmy
 
 from app.services.db import get_pool
@@ -13,7 +15,8 @@ async def add(user_id: int, title: str, item_type: str = 'task', due_at: str | N
                 "INSERT INTO items (user_id, type, title, due_at) VALUES (%s, %s, %s, %s)",
                 (user_id, item_type, title, due_at)
             )
-            return cur.lastrowid
+            return cast(int, cur.lastrowid)
+
 
 async def get_list(user_id: int, status: str = 'todo') -> list[dict]:
     pool = get_pool()
@@ -32,6 +35,7 @@ async def get_list(user_id: int, status: str = 'todo') -> list[dict]:
                 )
             return await cur.fetchall()
 
+
 async def get_by_period(user_id: int, period: str) -> list[dict]:
     pool = get_pool()
     async with pool.acquire() as conn:
@@ -49,6 +53,7 @@ async def get_by_period(user_id: int, period: str) -> list[dict]:
             )
             return await cur.fetchall()
 
+
 async def mark_done(user_id: int, item_id: int) -> bool:
     pool = get_pool()
     async with pool.acquire() as conn:
@@ -57,7 +62,8 @@ async def mark_done(user_id: int, item_id: int) -> bool:
                 "UPDATE items SET status='done', done_at=NOW() WHERE id=%s AND user_id=%s AND status='todo'",
                 (item_id, user_id)
             )
-            return cur.rowcount > 0
+            return cast(int, cur.rowcount) > 0
+
 
 async def undo_by_position(user_id: int, pos: int) -> bool:
     pool = get_pool()
@@ -73,19 +79,22 @@ async def undo_by_position(user_id: int, pos: int) -> bool:
             await cur.execute("UPDATE items SET status='todo', done_at=NULL WHERE id=%s", (row[0],))
             return True
 
+
 async def delete(user_id: int, item_id: int) -> bool:
     pool = get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute("DELETE FROM items WHERE id=%s AND user_id=%s", (item_id, user_id))
-            return cur.rowcount > 0
+            return cast(int, cur.rowcount) > 0
+
 
 async def clear_all(user_id: int) -> int:
     pool = get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute("DELETE FROM items WHERE user_id=%s", (user_id,))
-            return cur.rowcount
+            return cast(int, cur.rowcount)
+
 
 async def get_ideas(user_id: int) -> list[dict]:
     pool = get_pool()
@@ -97,6 +106,7 @@ async def get_ideas(user_id: int) -> list[dict]:
             )
             return await cur.fetchall()
 
+
 async def find_by_position(user_id: int, pos: int) -> dict | None:
     pool = get_pool()
     async with pool.acquire() as conn:
@@ -106,6 +116,7 @@ async def find_by_position(user_id: int, pos: int) -> dict | None:
                 (user_id, pos - 1)
             )
             return await cur.fetchone()
+
 
 async def find_by_title(user_id: int, title: str) -> dict | None:
     pool = get_pool()

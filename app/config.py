@@ -35,4 +35,4 @@ class Settings(BaseSettings):
     db_name: str = ""
 
 
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]
