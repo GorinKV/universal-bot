@@ -24,6 +24,7 @@ async def init_db() -> None:
         )
         async with _pool.acquire() as conn:
             async with conn.cursor() as cur:
+                # Таблица задач и идей
                 await cur.execute("""
                     CREATE TABLE IF NOT EXISTS items (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -37,7 +38,18 @@ async def init_db() -> None:
                         INDEX idx_user_status (user_id, status)
                     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
                 """)
-        logger.info("MariaDB подключена, таблица items готова")
+                # Таблица git-проектов
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS git_projects (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        user_id BIGINT NOT NULL,
+                        path VARCHAR(255) NOT NULL,
+                        enabled BOOLEAN DEFAULT TRUE,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        INDEX idx_user (user_id)
+                    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+                """)
+        logger.info("MariaDB подключена, таблицы items и git_projects готовы")
     except Exception as e:
         logger.error("Ошибка подключения к MariaDB: %s", e)
         raise

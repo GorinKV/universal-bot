@@ -1,12 +1,11 @@
 """Обработчики команд и сообщений."""
-
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
 from app.config import settings
-from app.repositories import items
-from app.services import gigachat, whisper
+from app.repositories import git_projects, items
+from app.services import gigachat, git_manager, whisper
 from app.services.backup import create_and_send_backup
 from app.services.health import collect_health
 
@@ -232,3 +231,101 @@ async def handle_free_text(message: Message) -> None:
         await message.answer(answer)
     except RuntimeError as e:
         await message.answer(f"⚠️ {e}")
+
+
+# --- GIT УПРАВЛЕНИЕ ---
+
+@router.message(Command("git"))
+async def cmd_git(message: Message, command: CommandObject) -> None:
+    if message.from_user.id != settings.admin_id:
+        await message.answer("⛔️ Управление Git доступно только админу.")
+        return
+
+    args = command.args.split() if command.args else []
+    if not args:
+        await message.answer(
+            "<b>Git команды:</b>\n"
+            "/git add &lt;путь&gt; — добавить проект\n"
+            "/git list — список\n"
+            "/git status — статус изменений\n"
+            "/git commit — коммит с ИИ-сообщением\n"
+            "/git auto — принудительный коммит всех\n"
+            "/git remove &lt;ID&gt; — удалить из списка"
+        )
+        return
+
+    action = args[0]
+
+    if action == "add":
+        if len(args) < 2:
+            await message.answer("Укажи путь: /git add /home/kvg/myproject")
+            return
+        path = args[1].strip()
+        # Проверяем, что это git-репо
+        if not await git_manager.is_git_repo(path):
+            await message.answer("❌ Это не git-репозиторий или путь не существует.")
+            return
+        proj_id = await git_projects.add_project(message.from_user.id, path)
+        await message.answer(f"✅ Проект добавлен (ID: {proj_id})")
+
+    elif action == "list":
+        projects = await git_projects.get_projects(message.from_user.id)
+        if not projects:
+            await message.answer("📭 Список пуст. Добавь: /git add <путь>")
+            return
+        text = "<b>📂 Отслеживаемые проекты:</b>\n\n"
+        for p in projects:
+            text += f"[{p['id']}] <code>{p['path']}</code>\n"
+        await message.answer(text)
+
+    elif action == "status":
+        projects = await git_projects.get_projects(message.from_user.id)
+        if not projects:
+            await message.answer("📭 Список пуст.")
+            return
+        text = "<b>📊 Статус проектов:</b>\n\n"
+        for p in projects:
+            status = await git_manager.get_status(p['path'])
+            if status.startswith("✅"):
+                text += f"<b>[{p['id']}]</b> {status}\n\n"
+            else:
+                text += f"<b>[{p['id']}]</b> {p['path']}\n<pre>{status}</pre>\n\n"
+        await message.answer(text)
+
+    elif action == "commit":
+        projects = await git_projects.get_projects(message.from_user.id)
+        if not projects:
+            await message.answer("📭 Список пуст.")
+            return
+        await message.answer("⏳ Генерирую коммиты...")
+        for p in projects:
+            status = await git_manager.get_status(p['path'])
+            if "Изменений нет" in status:
+                continue
+            msg = await git_manager.generate_commit_message(p['path'])
+            success = await git_manager.commit(p['path'], msg)
+            if success:
+                await message.answer(f"✅ <b>{p['path']}</b>\n<code>{msg}</code>")
+            else:
+                await message.answer(f"⚠️ Ошибка коммита в {p['path']}")
+
+    elif action == "auto":
+        # Аналогично commit, но для крона (без вывода в чат)
+        projects = await git_projects.get_projects(message.from_user.id)
+        for p in projects:
+            status = await git_manager.get_status(p['path'])
+            if "Изменений нет" in status:
+                continue
+            msg = await git_manager.generate_commit_message(p['path'])
+            await git_manager.commit(p['path'], msg)
+
+    elif action == "remove":
+        if len(args) < 2 or not args[1].isdigit():
+            await message.answer("Укажи ID: /git remove 1")
+            return
+        if await git_projects.remove_project(message.from_user.id, int(args[1])):
+            await message.answer("🗑 Удалено из списка.")
+        else:
+            await message.answer("⚠️ Не найдено.")
+    else:
+        await message.answer("Неизвестная команда. Напиши /git для справки.")
