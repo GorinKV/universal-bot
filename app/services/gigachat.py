@@ -3,37 +3,33 @@
 import asyncio
 import json
 import logging
+from datetime import datetime
 
 from gigachat import GigaChat
-from gigachat.models import (
-    Chat,
-    Function,
-    FunctionParameters,
-    Messages,
-    MessagesRole,
-)
+from gigachat.models import Chat, Function, FunctionParameters, Messages, MessagesRole
 
 from app.config import settings
 from app.repositories import items
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = (
-    "Ты универсальный помощник с доступом к инструментам.\n"
-    "ВНИМАНИЕ! Если пользователь просит выполнить действие с задачами, ОБЯЗАТЕЛЬНО вызывай соответствующий инструмент.\n"
-    "Правила:\n"
-    "- Просит создать задачу -> create_task.\n"
-    "- Просит сохранить идею -> create_idea.\n"
-    "- Просит показать задачи/список дел -> get_tasks (filter='active').\n"
-    "- Просит показать выполненные задачи -> get_tasks (filter='completed').\n"
-    "- Просит показать все задачи -> get_tasks (filter='all').\n"
-    "- Просит показать идеи -> get_ideas.\n"
-    "- Говорит 'выполнил', 'сделал', 'готово' -> mark_task_done (position=1, 2... или title).\n"
-    "- Говорит 'удали' -> delete_task.\n"
-    "- Говорит 'верни' -> undo_task.\n"
-    "- Говорит 'очисти все' -> clear_tasks.\n"
-    "Не задавай лишних вопросов, просто вызывай инструмент."
-)
+# Функция для получения системного промпта с актуальной датой
+def get_system_prompt() -> str:
+    today = datetime.now().strftime("%Y-%m-%d")
+    return (
+        f"Сегодняшняя дата: {today}.\n"
+        "Ты универсальный помощник с доступом к инструментам.\n"
+        "ВНИМАНИЕ! Если пользователь просит выполнить действие с задачами, ОБЯЗАТЕЛЬНО вызывай соответствующий инструмент.\n"
+        "Правила:\n"
+        "- Просит создать задачу -> create_task. Если указано время ('завтра', 'до пятницы'), ОБЯЗАТЕЛЬНО вычисли дату в формате YYYY-MM-DD и передай в due_date.\n"
+        "- Просит сохранить идею -> create_idea.\n"
+        "- Просит показать задачи/список дел -> get_tasks.\n"
+        "- Просит показать идеи -> get_ideas.\n"
+        "- 'выполнил', 'сделал' -> mark_task_done.\n"
+        "- 'удали' -> delete_task.\n"
+        "- 'верни' -> undo_task.\n"
+        "Не задавай лишних вопросов, просто вызывай инструмент."
+    )
 
 MAX_USER_LEN = 2000
 MAX_AI_LEN = 4000
@@ -60,59 +56,48 @@ def _get_client() -> GigaChat:
 def is_configured() -> bool:
     return bool(settings.gigachat_credentials)
 
-
 def reset_history(user_id: int) -> None:
     _histories.pop(user_id, None)
-
 
 def _get_history(user_id: int) -> list[Messages]:
     if user_id not in _histories:
         _histories[user_id] = [
-            Messages(role=MessagesRole.SYSTEM, content=SYSTEM_PROMPT)
+            Messages(role=MessagesRole.SYSTEM, content=get_system_prompt())
         ]
     return _histories[user_id]
 
 
-# --- Инструменты ---
-
 CREATE_TASK_FUNCTION = Function(
     name="create_task",
-    description="Создать новую задачу в списке дел",
+    description="Создать новую задачу",
     parameters=FunctionParameters(
         type="object",
-        properties={"title": {"type": "string", "description": "Текст задачи"}},
+        properties={
+            "title": {"type": "string", "description": "Текст задачи"},
+            "due_date": {"type": "string", "description": "Срок выполнения в формате YYYY-MM-DD (опционально)"}
+        },
         required=["title"],
     ),
 )
 
 CREATE_IDEA_FUNCTION = Function(
     name="create_idea",
-    description="Сохранить новую идею",
-    parameters=FunctionParameters(
-        type="object",
-        properties={"title": {"type": "string", "description": "Текст идеи"}},
-        required=["title"],
-    ),
+    description="Сохранить идею",
+    parameters=FunctionParameters(type="object", properties={"title": {"type": "string"}}, required=["title"]),
 )
 
 GET_TASKS_FUNCTION = Function(
     name="get_tasks",
-    description="Показать список задач пользователя",
+    description="Показать список задач",
     parameters=FunctionParameters(
         type="object",
-        properties={
-            "filter": {
-                "type": "string",
-                "enum": ["active", "completed", "all"],
-                "description": "active (активные), completed (выполненные), all (все)"
-            }
-        },
+        properties={"filter": {"type": "string", "enum": ["active", "completed", "all"]}},
     ),
 )
 
 GET_IDEAS_FUNCTION = Function(
     name="get_ideas",
-    description="Показать список идей пользователя",
+    description="Показать список идей",
     parameters=FunctionParameters(type="object", properties={}),
 )
 
@@ -122,8 +107,8 @@ MARK_DONE_FUNCTION = Function(
     parameters=FunctionParameters(
         type="object",
         properties={
-            "position": {"type": "integer", "description": "Позиция задачи в списке (1, 2, 3...)"},
-            "title": {"type": "string", "description": "Название задачи, если названа"},
+            "position": {"type": "integer", "description": "Позиция в списке"},
+            "title": {"type": "string", "description": "Название задачи"},
         },
     ),
 )
@@ -134,7 +119,7 @@ DELETE_FUNCTION = Function(
     parameters=FunctionParameters(
         type="object",
         properties={
-            "position": {"type": "integer", "description": "Позиция задачи в списке"},
+            "position": {"type": "integer", "description": "Позиция в списке"},
             "title": {"type": "string", "description": "Название задачи"},
         },
     ),
@@ -142,40 +127,30 @@ DELETE_FUNCTION = Function(
 
 UNDO_FUNCTION = Function(
     name="undo_task",
-    description="Вернуть задачу из выполненных в активные",
-    parameters=FunctionParameters(
-        type="object",
-        properties={"position": {"type": "integer", "description": "Позиция в выполненных (1 - последняя)"}},
-        required=["position"],
-    ),
+    description="Вернуть задачу из выполненных",
+    parameters=FunctionParameters(type="object", properties={"position": {"type": "integer"}}, required=["position"]),
 )
 
 CLEAR_FUNCTION = Function(
     name="clear_tasks",
-    description="Удалить все задачи пользователя",
+    description="Удалить все задачи",
     parameters=FunctionParameters(type="object", properties={}),
 )
 
 FUNCTIONS = [
-    CREATE_TASK_FUNCTION,
-    CREATE_IDEA_FUNCTION,
-    GET_TASKS_FUNCTION,
-    GET_IDEAS_FUNCTION,
-    MARK_DONE_FUNCTION,
-    DELETE_FUNCTION,
-    UNDO_FUNCTION,
-    CLEAR_FUNCTION,
+    CREATE_TASK_FUNCTION, CREATE_IDEA_FUNCTION, GET_TASKS_FUNCTION, GET_IDEAS_FUNCTION,
+    MARK_DONE_FUNCTION, DELETE_FUNCTION, UNDO_FUNCTION, CLEAR_FUNCTION,
 ]
-
 
 async def _execute_function(user_id: int, name: str, arguments: dict) -> dict:
     try:
         if name == "create_task":
             title = arguments.get("title", "").strip()
+            due_date = arguments.get("due_date")  # GigaChat вернет YYYY-MM-DD
             if not title:
                 return {"status": "error", "message": "Пустой текст"}
-            item_id = await items.add(user_id, title, item_type="task")
-            return {"status": "success", "id": item_id, "title": title}
+            item_id = await items.add(user_id, title, item_type="task", due_at=due_date)
+            return {"status": "success", "id": item_id, "title": title, "due": due_date}
 
         if name == "create_idea":
             title = arguments.get("title", "").strip()
@@ -195,7 +170,7 @@ async def _execute_function(user_id: int, name: str, arguments: dict) -> dict:
                 lines = [f"[{i['id']}] {i['title']}" for i in todo] + [f"~[{i['id']}] {i['title']}~ ({i['dt']})" for i in done]
             else:
                 data = await items.get_list(user_id, 'todo')
-                lines = [f"[{i['id']}] {i['title']}" + (" 💡" if i.get('type') == 'idea' else "") for i in data]
+                lines = [f"[{i['id']}] {i['title']}" + (f" (до {i['due']})" if i.get('due') else "") for i in data]
 
             if not lines:
                 return {"status": "success", "result": "Список пуст."}
@@ -256,16 +231,9 @@ async def ask(user_id: int, text: str) -> str:
 
     try:
         client = _get_client()
-
         response = await asyncio.to_thread(
             client.chat,
-            Chat(
-                messages=history,
-                functions=FUNCTIONS,
-                function_call="auto",
-                temperature=0.3,
-                max_tokens=1024,
-            ),
+            Chat(messages=history, functions=FUNCTIONS, function_call="auto", temperature=0.3, max_tokens=1024),
         )
 
         choice = response.choices[0]
@@ -284,17 +252,10 @@ async def ask(user_id: int, text: str) -> str:
                 arguments = raw_args or {}
 
             logger.info("GigaChat вызвал функцию %s с аргументами %s", name, arguments)
-
             result = await _execute_function(user_id, name, arguments)
 
             history.append(message)
-            history.append(
-                Messages(
-                    role=MessagesRole.FUNCTION,
-                    content=json.dumps(result, ensure_ascii=False),
-                    name=name,
-                )
-            )
+            history.append(Messages(role=MessagesRole.FUNCTION, content=json.dumps(result, ensure_ascii=False), name=name))
 
             response = await asyncio.to_thread(
                 client.chat,
@@ -325,11 +286,7 @@ async def ping() -> tuple[bool, str]:
     try:
         client = _get_client()
         response = await asyncio.to_thread(
-            client.chat,
-            Chat(
-                messages=[Messages(role=MessagesRole.USER, content="ок")],
-                max_tokens=10,
-            ),
+            client.chat, Chat(messages=[Messages(role=MessagesRole.USER, content="ок")], max_tokens=10)
         )
         _ = response.choices[0].message.content
         return True, "ok"

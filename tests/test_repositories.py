@@ -11,19 +11,16 @@ def mock_db(monkeypatch):
     conn = MagicMock()
     cur = AsyncMock()
 
-    # Мокаем pool.acquire() как асинхронный контекстный менеджер
     acquire_mock = MagicMock()
     acquire_mock.__aenter__ = AsyncMock(return_value=conn)
     acquire_mock.__aexit__ = AsyncMock(return_value=None)
     pool.acquire.return_value = acquire_mock
 
-    # Мокаем conn.cursor() как асинхронный контекстный менеджер
     cursor_mock = MagicMock()
     cursor_mock.__aenter__ = AsyncMock(return_value=cur)
     cursor_mock.__aexit__ = AsyncMock(return_value=None)
     conn.cursor.return_value = cursor_mock
 
-    # Подменяем get_pool так, чтобы он возвращал наш фейковый pool
     monkeypatch.setattr("app.repositories.items.get_pool", lambda: pool)
     return pool, conn, cur
 
@@ -39,13 +36,14 @@ async def test_add_item(mock_db):
     cur.execute.assert_called_once()
     args, _ = cur.execute.call_args
     assert "INSERT INTO items" in args[0]
-    assert args[1] == (1, "task", "Купить сыр")
+    # Добавляем None в конец, так как due_at по умолчанию None
+    assert args[1] == (1, "task", "Купить сыр", None)
 
 
 @pytest.mark.asyncio
 async def test_mark_done(mock_db):
     pool, conn, cur = mock_db
-    cur.rowcount = 1  # Имитируем, что 1 строка обновлена
+    cur.rowcount = 1
 
     result = await items.mark_done(user_id=1, item_id=10)
 
