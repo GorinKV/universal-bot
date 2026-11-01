@@ -1,4 +1,4 @@
-"""Клиент GigaChat: OAuth, чат, история, function calling с фолбэком."""
+"""Клиент GigaChat: OAuth, чат, история, function calling."""
 
 import asyncio
 import json
@@ -6,18 +6,13 @@ import logging
 from datetime import datetime
 
 from gigachat import GigaChat
-from gigachat.models import (
-    Chat,
-    Function,
-    FunctionParameters,
-    Messages,
-    MessagesRole,
-)
+from gigachat.models import Chat, Function, FunctionParameters, Messages, MessagesRole
 
 from app.config import settings
 from app.repositories import items
 
 logger = logging.getLogger(__name__)
+
 
 def get_system_prompt() -> str:
     today = datetime.now().strftime("%Y-%m-%d")
@@ -26,15 +21,18 @@ def get_system_prompt() -> str:
         "Ты универсальный помощник с доступом к инструментам.\n"
         "ВНИМАНИЕ! Если пользователь просит выполнить действие с задачами, ОБЯЗАТЕЛЬНО вызывай соответствующий инструмент.\n"
         "Правила:\n"
-        "- Просит создать задачу -> create_task. Если указано время ('завтра', 'до пятницы'), ОБЯЗАТЕЛЬНО вычисли дату в формате YYYY-MM-DD и передай в due_date.\n"
-        "- Просит сохранить идею -> create_idea.\n"
-        "- Просит показать задачи/список дел -> get_tasks.\n"
-        "- Просит показать идеи -> get_ideas.\n"
-        "- 'выполнил', 'сделал' -> mark_task_done.\n"
-        "- 'удали' -> delete_task.\n"
+        "- 'создай задачу' -> create_task. Если указано время ('завтра', 'до пятницы'), вычисли дату в YYYY-MM-DD и передай в due_date.\n"
+        "- 'сохрани идею' -> create_idea.\n"
+        "- 'покажи задачи' -> get_tasks.\n"
+        "- 'покажи идеи' -> get_ideas.\n"
+        "- 'выполнил X', где X — число -> mark_task_done (передавай это число в параметр id).\n"
+        "- 'выполнил первый/второй/последний' -> mark_task_done (передавай position).\n"
+        "- 'выполнил [название]' -> mark_task_done (передавай title).\n"
+        "- 'удали X' -> delete_task (тот же принцип: число в id, порядок в position, слово в title).\n"
         "- 'верни' -> undo_task.\n"
         "Не задавай лишних вопросов, просто вызывай инструмент."
     )
+
 
 MAX_USER_LEN = 2000
 MAX_AI_LEN = 4000
@@ -74,8 +72,6 @@ def _get_history(user_id: int) -> list[Messages]:
     return _histories[user_id]
 
 
-# --- Инструменты (описание функций) ---
-
 CREATE_TASK_FUNCTION = Function(
     name="create_task",
     description="Создать новую задачу",
@@ -83,7 +79,7 @@ CREATE_TASK_FUNCTION = Function(
         type="object",
         properties={
             "title": {"type": "string", "description": "Текст задачи"},
-            "due_date": {"type": "string", "description": "Срок выполнения в формате YYYY-MM-DD (опционально)"},
+            "due_date": {"type": "string", "description": "Срок в формате YYYY-MM-DD (опционально)"},
         },
         required=["title"],
     ),
@@ -104,13 +100,7 @@ GET_TASKS_FUNCTION = Function(
     description="Показать список задач",
     parameters=FunctionParameters(
         type="object",
-        properties={
-            "filter": {
-                "type": "string",
-                "enum": ["active", "completed", "all"],
-                "description": "active (активные), completed (выполненные), all (все)",
-            }
-        },
+        properties={"filter": {"type": "string", "enum": ["active", "completed", "all"]}},
     ),
 )
 
@@ -126,7 +116,8 @@ MARK_DONE_FUNCTION = Function(
     parameters=FunctionParameters(
         type="object",
         properties={
-            "position": {"type": "integer", "description": "Позиция в списке"},
+            "id": {"type": "integer", "description": "ID задачи (число в квадратных скобках [1], [2])"},
+            "position": {"type": "integer", "description": "Позиция в списке (1 - первая, 2 - вторая)"},
             "title": {"type": "string", "description": "Название задачи"},
         },
     ),
@@ -138,6 +129,7 @@ DELETE_FUNCTION = Function(
     parameters=FunctionParameters(
         type="object",
         properties={
+            "id": {"type": "integer", "description": "ID задачи (число в квадратных скобках)"},
             "position": {"type": "integer", "description": "Позиция в списке"},
             "title": {"type": "string", "description": "Название задачи"},
         },
@@ -149,7 +141,7 @@ UNDO_FUNCTION = Function(
     description="Вернуть задачу из выполненных",
     parameters=FunctionParameters(
         type="object",
-        properties={"position": {"type": "integer", "description": "Позиция в выполненных"}},
+        properties={"position": {"type": "integer", "description": "Позиция в выполненных (1 - последняя)"}},
         required=["position"],
     ),
 )
@@ -161,14 +153,8 @@ CLEAR_FUNCTION = Function(
 )
 
 FUNCTIONS = [
-    CREATE_TASK_FUNCTION,
-    CREATE_IDEA_FUNCTION,
-    GET_TASKS_FUNCTION,
-    GET_IDEAS_FUNCTION,
-    MARK_DONE_FUNCTION,
-    DELETE_FUNCTION,
-    UNDO_FUNCTION,
-    CLEAR_FUNCTION,
+    CREATE_TASK_FUNCTION, CREATE_IDEA_FUNCTION, GET_TASKS_FUNCTION, GET_IDEAS_FUNCTION,
+    MARK_DONE_FUNCTION, DELETE_FUNCTION, UNDO_FUNCTION, CLEAR_FUNCTION,
 ]
 
 
@@ -197,15 +183,11 @@ async def _execute_function(user_id: int, name: str, arguments: dict) -> dict:
             elif filter_type == "all":
                 todo = await items.get_list(user_id, 'todo')
                 done = await items.get_list(user_id, 'done')
-                lines = [f"[{i['id']}] {i['title']}" for i in todo] + [
-                    f"~[{i['id']}] {i['title']}~ ({i['dt']})" for i in done
-                ]
+                lines = [f"[{i['id']}] {i['title']}" for i in todo] + [f"~[{i['id']}] {i['title']}~ ({i['dt']})" for i in done]
             else:
                 data = await items.get_list(user_id, 'todo')
-                lines = [
-                    f"[{i['id']}] {i['title']}" + (f" (до {i['due']})" if i.get('due') else "")
-                    for i in data
-                ]
+                lines = [f"[{i['id']}] {i['title']}" + (f" (до {i['due']})" if i.get('due') else "") for i in data]
+
             if not lines:
                 return {"status": "success", "result": "Список пуст."}
             return {"status": "success", "result": "\n".join(lines)}
@@ -218,13 +200,18 @@ async def _execute_function(user_id: int, name: str, arguments: dict) -> dict:
             return {"status": "success", "result": "\n".join(lines)}
 
         if name in ("mark_task_done", "delete_task"):
+            item_id = arguments.get("id")
             position = arguments.get("position")
             title = arguments.get("title")
             item = None
-            if position:
+
+            if item_id:
+                item = await items.find_by_id(user_id, int(item_id))
+            elif position:
                 item = await items.find_by_position(user_id, int(position))
             elif title:
                 item = await items.find_by_title(user_id, str(title))
+
             if not item:
                 return {"status": "error", "message": "Задача не найдена"}
 
@@ -264,16 +251,9 @@ async def ask(user_id: int, text: str) -> str:
 
     try:
         client = _get_client()
-
         response = await asyncio.to_thread(
             client.chat,
-            Chat(
-                messages=history,
-                functions=FUNCTIONS,
-                function_call="auto",
-                temperature=0.3,
-                max_tokens=1024,
-            ),
+            Chat(messages=history, functions=FUNCTIONS, function_call="auto", temperature=0.3, max_tokens=1024),
         )
 
         choice = response.choices[0]
@@ -295,13 +275,7 @@ async def ask(user_id: int, text: str) -> str:
             result = await _execute_function(user_id, name, arguments)
 
             history.append(message)
-            history.append(
-                Messages(
-                    role=MessagesRole.FUNCTION,
-                    content=json.dumps(result, ensure_ascii=False),
-                    name=name,
-                )
-            )
+            history.append(Messages(role=MessagesRole.FUNCTION, content=json.dumps(result, ensure_ascii=False), name=name))
 
             response = await asyncio.to_thread(
                 client.chat,
@@ -316,12 +290,10 @@ async def ask(user_id: int, text: str) -> str:
 
     except Exception as e:
         error_str = str(e)
-
-        # Фолбэк: если ошибка 422 (некорректная история вызовов функций)
+        # Фолбэк при ошибке 422
         if "422" in error_str and ("function" in error_str or "assistant" in error_str):
-            logger.warning("История функций повреждена (422). Сбрасываю историю и повторяю запрос.")
+            logger.warning("История функций повреждена (422). Сбрасываю историю.")
             reset_history(user_id)
-            # Повторная попытка с чистого листа, без функций
             try:
                 client = _get_client()
                 new_history = [
@@ -329,21 +301,17 @@ async def ask(user_id: int, text: str) -> str:
                     Messages(role=MessagesRole.USER, content=text),
                 ]
                 response = await asyncio.to_thread(
-                    client.chat,
-                    Chat(messages=new_history, temperature=0.3, max_tokens=1024),
+                    client.chat, Chat(messages=new_history, temperature=0.3, max_tokens=1024)
                 )
                 answer = response.choices[0].message.content or "Готово."
-                # Сохраняем новую историю
-                _histories[user_id] = new_history + [
-                    Messages(role=MessagesRole.ASSISTANT, content=answer)
-                ]
+                _histories[user_id] = new_history + [Messages(role=MessagesRole.ASSISTANT, content=answer)]
                 return answer[:MAX_AI_LEN]
             except Exception as retry_error:
-                logger.exception("Повторная попытка также не удалась")
-                raise RuntimeError(f"GigaChat (после сброса истории): {retry_error}") from retry_error
+                logger.exception("Повторная попытка не удалась")
+                raise RuntimeError(f"GigaChat (после сброса): {retry_error}") from retry_error
 
         logger.exception("GigaChat: ошибка запроса")
-        history.pop()  # откатить сообщение пользователя
+        history.pop()
         raise RuntimeError(f"GigaChat: {e}") from e
 
     history.append(Messages(role=MessagesRole.ASSISTANT, content=answer))
@@ -359,11 +327,7 @@ async def ping() -> tuple[bool, str]:
     try:
         client = _get_client()
         response = await asyncio.to_thread(
-            client.chat,
-            Chat(
-                messages=[Messages(role=MessagesRole.USER, content="ок")],
-                max_tokens=10,
-            ),
+            client.chat, Chat(messages=[Messages(role=MessagesRole.USER, content="ок")], max_tokens=10)
         )
         _ = response.choices[0].message.content
         return True, "ok"

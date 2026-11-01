@@ -107,6 +107,18 @@ async def get_ideas(user_id: int) -> list[dict]:
             return await cur.fetchall()
 
 
+async def find_by_id(user_id: int, item_id: int) -> dict | None:
+    """Найти активную задачу по её ID (число в скобках)."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor(asyncmy.cursors.DictCursor) as cur:
+            await cur.execute(
+                "SELECT id, title FROM items WHERE user_id=%s AND status='todo' AND id=%s",
+                (user_id, item_id)
+            )
+            return await cur.fetchone()
+
+
 async def find_by_position(user_id: int, pos: int) -> dict | None:
     pool = get_pool()
     async with pool.acquire() as conn:
