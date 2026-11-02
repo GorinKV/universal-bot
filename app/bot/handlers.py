@@ -346,3 +346,9 @@ async def handle_free_text(message: Message) -> None:
         await message.answer(answer)
     except RuntimeError as e:
         await message.answer(f"⚠️ {e}")
+
+
+@router.message(Command("crash"))
+async def cmd_crash(message: Message) -> None:
+    if message.from_user.id == settings.admin_id:
+        raise ValueError("Тестовая ошибка: проверка error_handler")
