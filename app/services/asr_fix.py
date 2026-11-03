@@ -14,11 +14,12 @@ HARD_FIXES = {
     r'\bсадач\w*': 'задач',
     r'\bпозван\w*': 'позвони',
     r'\bмалако\b': 'молоко',
-    r'\bидеев\b': 'идею',  # <--- Добавляем эту строку
+    r'\bидеев\b': 'идею',
+    r'\bгугу\b': 'Google',
+    r'\bгугл\b': 'Google',
 }
 
 # 2. Целевые слова (правильные варианты, которые мы ищем fuzzy-поиском)
-# Сюда вносим термины, имена и частые слова, которые whisper коверкает.
 TARGET_WORDS = [
     "задачу", "задачи", "задача",
     "позвонить", "позвони",
@@ -27,23 +28,23 @@ TARGET_WORDS = [
     "написать", "сделать", "выполнить",
     "напомнить", "встреча", "проект",
     "бот", "код", "сервер", "приложение",
-    "Константин", "Галина", "Коломо"
+    "Google", "Диск", "reg.ru", "сервер",
 ]
 
 
 def _fuzzy_fix_word(word: str) -> str:
     """Ищет похожее правильное слово и заменяет, если сходство > 80%."""
-    # Игнорируем короткие слова (предлоги, союзы)
     if len(word) < 4:
         return word
 
-    # Ищем наиболее похожее слово из TARGET_WORDS
-    matches = difflib.get_close_matches(word.lower(), TARGET_WORDS, n=1, cutoff=0.8)
+    matches = difflib.get_close_matches(word.lower(), [w.lower() for w in TARGET_WORDS], n=1, cutoff=0.8)
 
     if matches:
-        fixed = matches[0]
-        logger.info("ASR fuzzy fix: '%s' -> '%s'", word, fixed)
-        return fixed
+        for target in TARGET_WORDS:
+            if target.lower() == matches[0]:
+                if word.lower() != target.lower():
+                    logger.info("ASR fuzzy fix: '%s' -> '%s'", word, target)
+                return target
     return word
 
 
@@ -52,13 +53,10 @@ def fix_text(text: str) -> str:
     if not text:
         return text
 
-    # 1. Сначала применяем жесткие регулярки
     fixed = text
     for pattern, replacement in HARD_FIXES.items():
         fixed = re.sub(pattern, replacement, fixed, flags=re.IGNORECASE)
 
-    # 2. Затем проходим по каждому слову и делаем fuzzy-поиск
-    # Используем регулярку для разделения слов и знаков препинания
     words = re.findall(r'[\w-]+|[^\w\s]', fixed, flags=re.UNICODE)
 
     fixed_words = []
@@ -68,10 +66,7 @@ def fix_text(text: str) -> str:
         else:
             fixed_words.append(w)
 
-    # Собираем обратно (с пробелами, но без двойных пробелов)
     result = " ".join(fixed_words)
-
-    # Убираем пробел перед знаками препинания (например, "молоко ," -> "молоко,")
     result = re.sub(r'\s+([.,!?])', r'\1', result)
 
     return result

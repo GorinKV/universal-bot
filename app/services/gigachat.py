@@ -30,6 +30,7 @@ def get_system_prompt() -> str:
         "- 'выполнил [название]' -> mark_task_done (передавай title).\n"
         "- 'удали X' -> delete_task (тот же принцип: число в id, порядок в position, слово в title).\n"
         "- 'верни' -> undo_task.\n"
+        "- Если в тексте задачи есть очевидные ошибки распознавания речи (например, 'гугу' вместо 'Google', 'река ру' вместо 'reg.ru', 'малако' вместо 'молоко'), ОБЯЗАТЕЛЬНО исправь их перед вызовом create_task.\n"
         "Не задавай лишних вопросов, просто вызывай инструмент."
     )
 
@@ -290,7 +291,6 @@ async def ask(user_id: int, text: str) -> str:
 
     except Exception as e:
         error_str = str(e)
-        # Фолбэк при ошибке 422
         if "422" in error_str and ("function" in error_str or "assistant" in error_str):
             logger.warning("История функций повреждена (422). Сбрасываю историю.")
             reset_history(user_id)
