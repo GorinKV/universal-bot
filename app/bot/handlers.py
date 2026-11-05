@@ -1,9 +1,17 @@
 """Обработчики команд и сообщений."""
 
+import html
+
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandObject
-from aiogram.types import Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
+from app.bot.formatting import SAFE_LIMIT, split_text
 from app.config import settings
 from app.repositories import git_projects, items
 from app.services import gigachat, git_manager, whisper
@@ -117,7 +125,8 @@ async def cmd_ideas(message: Message) -> None:
         text += "\n".join(
             f"~[{i['id']}] {i['title']}~ ({i['dt']})" for i in done
         )
-    await message.answer(text)
+    for chunk in split_text(text):
+        await message.answer(chunk)
 
 
 @router.message(Command("tasks", "all"))
@@ -139,7 +148,8 @@ async def cmd_list(message: Message, command: CommandObject) -> None:
             )
         if not todo and not done:
             text = "📭 Пусто."
-        await message.answer(text)
+        for chunk in split_text(text):
+            await message.answer(chunk)
     else:
         todo = await items.get_list(message.from_user.id, 'todo')
         if not todo:
@@ -149,7 +159,8 @@ async def cmd_list(message: Message, command: CommandObject) -> None:
             f"[{i['id']}] {i['title']}" + (f" (до {i['due']})" if i.get('due') else "") + (" 💡" if i['type'] == 'idea' else "")
             for i in todo
         )
-        await message.answer(text)
+        for chunk in split_text(text):
+            await message.answer(chunk)
 
 
 @router.message(Command("completed", "month", "year"))
@@ -170,7 +181,8 @@ async def cmd_done_list(message: Message, command: CommandObject) -> None:
     text = f"<b>✅ {titles[period]}:</b>\n\n" + "\n".join(
         f"[{i['id']}] {i['title']} ({i['dt']})" for i in data
     )
-    await message.answer(text)
+    for chunk in split_text(text):
+        await message.answer(chunk)
 
 
 @router.message(Command("done"))
@@ -216,8 +228,26 @@ async def cmd_del(message: Message, command: CommandObject) -> None:
 async def cmd_clear(message: Message) -> None:
     if not message.from_user:
         return
-    count = await items.clear_all(message.from_user.id)
-    await message.answer(f"🗑 Удалено задач: {count}")
+    await message.answer(
+        "🗑 Удалить <b>все</b> задачи и идеи? Действие необратимо.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🗑 Да, удалить", callback_data="clear:yes"),
+            InlineKeyboardButton(text="Отмена", callback_data="clear:no"),
+        ]]),
+    )
+
+
+@router.callback_query(F.data.startswith("clear:"))
+async def cb_clear(callback: CallbackQuery) -> None:
+    if not callback.message or not callback.data:
+        await callback.answer()
+        return
+    if callback.data == "clear:yes":
+        count = await items.clear_all(callback.from_user.id)
+        await callback.message.edit_text(f"🗑 Удалено записей: {count}")
+    else:
+        await callback.message.edit_text("👍 Отменено.")
+    await callback.answer()
 
 
 # --- GIT УПРАВЛЕНИЕ ---
@@ -269,13 +299,21 @@ async def cmd_git(message: Message, command: CommandObject) -> None:
         if not projects:
             await message.answer("📭 Список пуст.")
             return
-        text = "<b>📊 Статус проектов:</b>\n\n"
-        for p in projects:
-            status = await git_manager.get_status(p['path'])
-            if status.startswith("✅"):
-                text += f"<b>[{p['id']}]</b> {status}\n\n"
-            else:
-                text += f"<b>[{p['id']}]</b> {p['path']}\n<pre>{status}</pre>\n\n"
+        statuses = [
+            (p, await git_manager.get_status(p['path'])) for p in projects
+        ]
+        text = "<b>📊 Статус проектов:</b>\n\n" + "\n\n".join(
+            f"<b>[{p['id']}]</b> {status}" if status.startswith("✅")
+            else f"<b>[{p['id']}]</b> {p['path']}\n<pre>{html.escape(status)}</pre>"
+            for p, status in statuses
+        )
+        if len(text) > SAFE_LIMIT:
+            # Диффы не влезают — компактный вариант без содержимого
+            text = "<b>📊 Статус проектов:</b>\n\n" + "\n".join(
+                f"<b>[{p['id']}]</b> {status}" if status.startswith("✅")
+                else f"<b>[{p['id']}]</b> {p['path']} — ⚠️ есть изменения (подробно: /git commit)"
+                for p, status in statuses
+            )
         await message.answer(text)
 
     elif action == "commit":
