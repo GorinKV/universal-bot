@@ -58,8 +58,8 @@ jobs:
             sleep 5
             if ! systemctl is-active --quiet universal-bot; then
               echo "❌ Сервис не запустился после деплоя!"
-              sudo journalctl -u universal-bot --no-pager -n 30
+              journalctl -u universal-bot --no-pager -n 30
               exit 1
             fi
             echo "✅ universal-bot активен"
-            sudo journalctl -u universal-bot --no-pager -n 5
+            journalctl -u universal-bot --no-pager -n 5
