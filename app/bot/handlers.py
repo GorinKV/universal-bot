@@ -1,8 +1,10 @@
 """Обработчики команд и сообщений."""
 
 import html
+import re
 
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject
 from aiogram.types import (
     CallbackQuery,
@@ -19,6 +21,39 @@ from app.services.backup import create_and_send_backup
 from app.services.health import collect_health
 
 router = Router()
+
+
+def _done_keyboard(chunk: str, skip_ids: set[int]) -> InlineKeyboardMarkup | None:
+    """Собирает ✅-кнопки по ID задач из куска текста списка."""
+    ids = [int(i) for i in re.findall(r"\[(\d+)\]", chunk) if int(i) not in skip_ids]
+    if not ids:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅", callback_data=f"done:{i}")] for i in ids
+    ])
+
+
+async def answer_list(message: Message, text: str, skip_ids: set[int] = frozenset()) -> None:
+    """Отправляет список по кускам, добавляя ✅-кнопки к строкам с [ID]."""
+    for chunk in split_text(text):
+        await message.answer(chunk, reply_markup=_done_keyboard(chunk, skip_ids))
+
+
+@router.callback_query(F.data.startswith("done:"))
+async def cb_done(callback: CallbackQuery) -> None:
+    data = (callback.data or "").removeprefix("done:")
+    if not data.isdigit() or not callback.message:
+        await callback.answer()
+        return
+    if await items.mark_done(callback.from_user.id, int(data)):
+        await callback.answer("✅ Выполнено!")
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except TelegramBadRequest:
+            # Разметка уже убрана (повторное нажатие) — не критично
+            pass
+    else:
+        await callback.answer("⚠️ Не найдено.", show_alert=True)
 
 
 @router.message(Command("start"))
@@ -45,6 +80,7 @@ async def cmd_help(message: Message) -> None:
         "/idea &lt;текст&gt; — сохранить идею\n"
         "/ideas — список идей\n"
         "/tasks — активные\n"
+        "Кнопка ✅ рядом с задачей в /tasks — быстрое выполнение\n"
         "/all — все\n"
         "/completed — выполненные\n"
         "/month — выполненные за месяц\n"
@@ -148,8 +184,8 @@ async def cmd_list(message: Message, command: CommandObject) -> None:
             )
         if not todo and not done:
             text = "📭 Пусто."
-        for chunk in split_text(text):
-            await message.answer(chunk)
+        done_ids = {i['id'] for i in done}
+        await answer_list(message, text, done_ids)
     else:
         todo = await items.get_list(message.from_user.id, 'todo')
         if not todo:
@@ -159,8 +195,7 @@ async def cmd_list(message: Message, command: CommandObject) -> None:
             f"[{i['id']}] {i['title']}" + (f" (до {i['due']})" if i.get('due') else "") + (" 💡" if i['type'] == 'idea' else "")
             for i in todo
         )
-        for chunk in split_text(text):
-            await message.answer(chunk)
+        await answer_list(message, text)
 
 
 @router.message(Command("completed", "month", "year"))
