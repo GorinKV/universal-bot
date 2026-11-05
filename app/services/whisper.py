@@ -51,7 +51,12 @@ async def transcribe_voice(bot: Bot, voice: Voice) -> str:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            await proc.wait()
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=settings.ffmpeg_timeout_sec)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                raise RuntimeError("ffmpeg: превышен таймаут конвертации")
             if proc.returncode != 0:
                 raise RuntimeError("Ошибка ffmpeg при конвертации")
 
@@ -69,7 +74,16 @@ async def transcribe_voice(bot: Bot, voice: Voice) -> str:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await proc.communicate()
+            # Таймаут обязателен: зависший whisper-cli навсегда заблокирует
+            # семафор (1 ГБ ОЗУ), и все последующие голосовые встанут в очередь.
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(), timeout=settings.whisper_timeout_sec
+                )
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                raise RuntimeError("whisper-cli: превышен таймаут распознавания")
 
             if proc.returncode != 0:
                 logger.error("whisper-cli stderr: %s", stderr.decode())

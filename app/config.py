@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     # Whisper (Ф2)
     whisper_cli: str = "/home/kvg/whisper.cpp/build/bin/whisper-cli"
     whisper_model: str = "/home/kvg/whisper.cpp/models/ggml-base.bin"
+    ffmpeg_timeout_sec: int = 30
+    whisper_timeout_sec: int = 240
+
+    # Планировщик
+    scheduler_timezone: str = "Europe/Moscow"
 
     # MariaDB (Ф3)
     db_host: str = "127.0.0.1"

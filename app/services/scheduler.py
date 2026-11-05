@@ -10,7 +10,7 @@ from app.services import reports
 from app.services.backup import create_and_send_backup
 
 logger = logging.getLogger(__name__)
-scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
+scheduler = AsyncIOScheduler(timezone=settings.scheduler_timezone)
 
 async def send_daily_report(bot, report_type: str):
     """Отправляет отчет админу (пока одному пользователю)."""
