@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.bot.handlers import cmd_add_item, cmd_start
+from app.bot.handlers import cb_clear, cmd_add_item, cmd_clear, cmd_start
 
 
 @pytest.mark.asyncio
@@ -38,3 +38,34 @@ async def test_cmd_add_item(mock_add):
     mock_add.assert_called_once_with(1, "Купить молоко", "task")
     message.answer.assert_called_once()
     assert "Добавлено (ID: <code>10</code>)" in message.answer.call_args[0][0]
+
+
+@pytest.mark.asyncio
+@patch("app.bot.handlers.items.clear_all")
+async def test_cmd_clear_requires_confirmation(mock_clear):
+    message = AsyncMock()
+    message.from_user = MagicMock()
+    message.from_user.id = 1
+
+    await cmd_clear(message)
+
+    # Ничего не удалено до подтверждения
+    mock_clear.assert_not_called()
+    message.answer.assert_called_once()
+
+
+@pytest.mark.asyncio
+@patch("app.bot.handlers.items.clear_all")
+async def test_callback_confirm_clear(mock_clear):
+    mock_clear.return_value = 3
+    callback = AsyncMock()
+    callback.data = "clear:yes"
+    callback.message = AsyncMock()
+    callback.from_user = MagicMock()
+    callback.from_user.id = 1
+
+    await cb_clear(callback)
+
+    mock_clear.assert_called_once_with(1)
+    callback.message.edit_text.assert_called_once()
+    assert "Удалено" in callback.message.edit_text.call_args[0][0]
