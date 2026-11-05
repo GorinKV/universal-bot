@@ -54,3 +54,12 @@ jobs:
             source .venv/bin/activate
             pip install -e .
             sudo systemctl restart universal-bot
+            # Health-check: упавший сервис должен ронять деплой, а не жить тихо
+            sleep 5
+            if ! systemctl is-active --quiet universal-bot; then
+              echo "❌ Сервис не запустился после деплоя!"
+              sudo journalctl -u universal-bot --no-pager -n 30
+              exit 1
+            fi
+            echo "✅ universal-bot активен"
+            sudo journalctl -u universal-bot --no-pager -n 5
