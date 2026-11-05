@@ -51,6 +51,8 @@ def _get_client() -> GigaChat:
             credentials=settings.gigachat_credentials,
             scope=settings.gigachat_scope,
             model=settings.gigachat_model,
+            # Цепочка сертификатов Sber подписана российским корневым CA
+            # (Минцифры), которого нет в стандартных хранилищах CA
             verify_ssl_certs=False,
             timeout=60,
         )
@@ -147,15 +149,13 @@ UNDO_FUNCTION = Function(
     ),
 )
 
-CLEAR_FUNCTION = Function(
-    name="clear_tasks",
-    description="Удалить все задачи",
-    parameters=FunctionParameters(type="object", properties={}),
-)
+# clear_tasks сознательно НЕ даём модели: GigaChat может среагировать на
+# двусмысленную фразу и безвозвратно снести весь список. Очистка — только
+# через /clear с inline-подтверждением в handlers.py.
 
 FUNCTIONS = [
     CREATE_TASK_FUNCTION, CREATE_IDEA_FUNCTION, GET_TASKS_FUNCTION, GET_IDEAS_FUNCTION,
-    MARK_DONE_FUNCTION, DELETE_FUNCTION, UNDO_FUNCTION, CLEAR_FUNCTION,
+    MARK_DONE_FUNCTION, DELETE_FUNCTION, UNDO_FUNCTION,
 ]
 
 
@@ -232,10 +232,6 @@ async def _execute_function(user_id: int, name: str, arguments: dict) -> dict:
                 return {"status": "error", "message": "Задача не найдена"}
             return {"status": "success"}
 
-        if name == "clear_tasks":
-            count = await items.clear_all(user_id)
-            return {"status": "success", "count": count}
-
         return {"status": "error", "message": f"Неизвестная функция: {name}"}
     except Exception as e:
         logger.exception("Ошибка выполнения функции %s", name)
@@ -248,6 +244,9 @@ async def ask(user_id: int, text: str) -> str:
 
     text = text[:MAX_USER_LEN]
     history = _get_history(user_id)
+    # Обновляем системный промпт: иначе застрявшая в history[0] дата
+    # устаревает, пока живёт история пользователя.
+    history[0].content = get_system_prompt()
     history.append(Messages(role=MessagesRole.USER, content=text))
 
     try:
