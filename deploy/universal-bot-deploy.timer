@@ -1,0 +1,11 @@
+[Unit]
+Description=Периодическая проверка новых коммитов universal-bot
+
+[Timer]
+OnBootSec=60s
+OnUnitActiveSec=2min
+AccuracySec=15s
+Unit=universal-bot-deploy.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Обёртка для systemd: выполняет копию deploy/pull-deploy.sh.
+#
+# Зачем копия: git merge может переписать скрипт прямо во время его работы,
+# а bash читает файл по мере выполнения. Копия в приватном /tmp (PrivateTmp=true)
+# защищает от такого сценария.
+set -euo pipefail
+
+src=/home/kvg/universal-bot/deploy/pull-deploy.sh
+tmp="$(mktemp /tmp/universal-bot-deploy.XXXXXX.sh)"
+trap 'rm -f "$tmp"' EXIT
+
+cp "$src" "$tmp"
+bash "$tmp"

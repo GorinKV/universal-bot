@@ -17,7 +17,7 @@
 - ⏰ **Автоматика** — утренний дайджест (07:00), напоминания (17:00), вечерний отчёт (20:40) — каждому пользователю отдельно, с возможностью отключить.
 - 📦 **Бэкапы** — ежедневная выгрузка БД и кода в Telegram (04:00).
 - 🐙 **Git-менеджер** — управление репозиториями и автокоммиты с LLM-сообщениями каждые 4 часа.
-- 🛡 **CI/CD** — строгая проверка (ruff, mypy, pytest) и автодеплой на сервер.
+- 🛡 **CI/CD** — строгая проверка (ruff, mypy, pytest); сервер сам раскатывает коммит после зелёного CI.
 
 ## 🖥️ Стек
 
@@ -29,7 +29,7 @@
 | БД | MariaDB + asyncmy |
 | Планировщик | APScheduler |
 | CI/CD | GitHub Actions, ruff, mypy, pytest |
-| Деплой | systemd + venv |
+| Деплой | systemd + venv, pull-таймер (без SSH-секретов) |
 
 ## 🚀 Быстрый старт
 
@@ -105,6 +105,33 @@ python -m app.main
 - Бэкапы кода в Telegram отправляются в архиве **без** `.env`.
 - MariaDB слушает только `127.0.0.1`.
 - Деплой защищен: код не попадет на сервер, если не пройдут тесты, линтер или mypy.
+
+## 🚀 Деплой (pull-схема)
+
+GitHub Actions только проверяет код. Раскатывает его сам сервер:
+
+1. `universal-bot-deploy.timer` раз в 2 минуты запускает `deploy/pull-deploy.sh`.
+2. Скрипт делает `git fetch`, сравнивает локальный `HEAD` с `origin/main`.
+3. Если появился новый коммит — спрашивает у GitHub API статус CI **именно для него**.
+   Пока идёт проверка или она упала, деплой не выполняется.
+4. После зелёного CI: `git merge --ff-only`, `pip install -e .` (только при изменении
+   `pyproject.toml`), `systemctl restart universal-bot`, ожидание `is-active`.
+5. Если сервис не поднялся — автоматический откат на прежний коммит.
+
+Почему так: внешний SSH-деплой из GitHub зависел от секретов (`SSH_HOST`,
+`SSH_PRIVATE_KEY`) и доступности порта 22 с раннеров. Pull-схема работает без
+секретов и не ломается при смене IP сервера.
+
+Установка на сервере (один раз):
+
+```bash
+sudo install -m 0644 deploy/universal-bot-deploy.service /etc/systemd/system/
+sudo install -m 0644 deploy/universal-bot-deploy.timer   /etc/systemd/system/
+sudo install -m 0755 deploy/universal-bot-deploy /usr/local/bin/   # обёртка
+sudo systemctl daemon-reload && sudo systemctl enable --now universal-bot-deploy.timer
+```
+
+Лог деплоя — `~/deploy.log`, журнал — `journalctl -u universal-bot-deploy`.
 
 ## 📄 Лицензия
 

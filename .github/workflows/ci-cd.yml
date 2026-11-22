@@ -36,35 +36,8 @@ jobs:
       run: |
         pytest tests/ -v
 
-  # 2. ЗАТЕМ ДЕПЛОЙ (ТОЛЬКО ЕСЛИ ТЕСТЫ ПРОШЛИ И ЭТО ПУШ В MAIN)
-  deploy:
-    needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy to VPS via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: gorinkv.mooo.com
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            cd ~/universal-bot || exit 1
-            LOG=~/deploy.log
-            (
-              set -e
-              echo "=== deploy $(date -Is) ==="
-              git pull --ff-only origin main
-              . .venv/bin/activate
-              pip install -e .
-              sudo -n systemctl restart universal-bot
-              for i in $(seq 1 20); do
-                systemctl is-active --quiet universal-bot && break
-                sleep 1
-              done
-              systemctl is-active universal-bot
-              journalctl -u universal-bot --no-pager -n 20
-            ) >"$LOG" 2>&1
-            status=$?
-            tail -n 40 "$LOG"
-            exit $status
+  # 2. ДЕПЛОЙ
+  # Выполняется не здесь, а на самом VPS: systemd-таймер universal-bot-deploy.timer
+  # раз в 2 минуты проверяет origin/main и раскатывает коммит, только если этот
+  # workflow завершился успешно. Так деплой не зависит от SSH-секретов и от
+  # доступности порта 22 с раннеров GitHub.

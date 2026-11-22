@@ -1,0 +1,14 @@
+[Unit]
+Description=Pull-деплой universal-bot (git main + restart)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=kvg
+Group=kvg
+WorkingDirectory=/home/kvg/universal-bot
+ExecStart=/usr/local/bin/universal-bot-deploy
+TimeoutStartSec=180
+PrivateTmp=true
+Nice=10
