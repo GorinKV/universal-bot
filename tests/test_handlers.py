@@ -2,7 +2,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.bot.handlers import _done_keyboard, cb_clear, cb_done, cmd_add_item, cmd_clear, cmd_start
+from app.bot.handlers import (
+    _done_keyboard,
+    cb_clear,
+    cb_done,
+    cmd_add_item,
+    cmd_clear,
+    cmd_reports,
+    cmd_start,
+)
 
 
 @pytest.mark.asyncio
@@ -135,3 +143,48 @@ async def test_callback_done_bad_data(mock_mark):
 
     mock_mark.assert_not_called()
     callback.answer.assert_called_once()
+
+
+@pytest.mark.asyncio
+@patch("app.bot.handlers.users.set_reports")
+async def test_cmd_reports_enable(mock_set):
+    message = AsyncMock()
+    message.from_user = MagicMock()
+    message.from_user.id = 7
+    command = MagicMock()
+    command.args = "on"
+
+    await cmd_reports(message, command)
+
+    mock_set.assert_awaited_once_with(7, True)
+    assert "включены" in message.answer.call_args[0][0]
+
+
+@pytest.mark.asyncio
+@patch("app.bot.handlers.users.set_reports")
+async def test_cmd_reports_disable(mock_set):
+    message = AsyncMock()
+    message.from_user = MagicMock()
+    message.from_user.id = 7
+    command = MagicMock()
+    command.args = "off"
+
+    await cmd_reports(message, command)
+
+    mock_set.assert_awaited_once_with(7, False)
+    assert "выключены" in message.answer.call_args[0][0]
+
+
+@pytest.mark.asyncio
+@patch("app.bot.handlers.users.reports_enabled")
+async def test_cmd_reports_status(mock_enabled):
+    mock_enabled.return_value = True
+    message = AsyncMock()
+    message.from_user = MagicMock()
+    message.from_user.id = 7
+    command = MagicMock()
+    command.args = None
+
+    await cmd_reports(message, command)
+
+    assert "включены" in message.answer.call_args[0][0]
