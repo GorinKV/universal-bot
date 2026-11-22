@@ -26,7 +26,12 @@ SERVICE="${SERVICE:-universal-bot}"
 LOG="${LOG:-$HOME/deploy.log}"
 STATE_FILE="${STATE_FILE:-$HOME/.cache/universal-bot-deploy.state}"
 
-log() { echo "$(date -Is) $*"; }
+log() {
+    local msg; msg="$(date -Is) $*"
+    echo "$msg"
+    # Дублируем в файл: journald ротируется, а история деплоев нужна целиком
+    [ -n "${LOG:-}" ] && echo "$msg" >>"$LOG" 2>/dev/null || true
+}
 
 cd "$REPO_DIR"
 
