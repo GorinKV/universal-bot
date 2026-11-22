@@ -49,17 +49,22 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            cd ~/universal-bot
-            git pull origin main
-            source .venv/bin/activate
-            pip install -e .
-            sudo -n systemctl restart universal-bot
-            # Health-check: упавший сервис должен ронять деплой, а не жить тихо
-            sleep 5
-            if ! systemctl is-active --quiet universal-bot; then
-              echo "❌ Сервис не запустился после деплоя!"
-              journalctl -u universal-bot --no-pager -n 30
-              exit 1
-            fi
-            echo "✅ universal-bot активен"
-            journalctl -u universal-bot --no-pager -n 5
+            cd ~/universal-bot || exit 1
+            LOG=~/deploy.log
+            (
+              set -e
+              echo "=== deploy $(date -Is) ==="
+              git pull --ff-only origin main
+              . .venv/bin/activate
+              pip install -e .
+              sudo -n systemctl restart universal-bot
+              for i in $(seq 1 20); do
+                systemctl is-active --quiet universal-bot && break
+                sleep 1
+              done
+              systemctl is-active universal-bot
+              journalctl -u universal-bot --no-pager -n 20
+            ) >"$LOG" 2>&1
+            status=$?
+            tail -n 40 "$LOG"
+            exit $status
