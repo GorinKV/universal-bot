@@ -111,8 +111,10 @@ python -m app.main
 GitHub Actions только проверяет код. Раскатывает его сам сервер:
 
 1. `universal-bot-deploy.timer` раз в 2 минуты запускает `deploy/pull-deploy.sh`.
-2. Скрипт делает `git fetch`, сравнивает локальный `HEAD` с `origin/main`.
-3. Если появился новый коммит — спрашивает у GitHub API статус CI **именно для него**.
+2. Скрипт делает `git fetch` и сравнивает `origin/main` с последним раскатанным
+   коммитом (маркер `~/.cache/universal-bot-deploy.state`). Локальный `HEAD` не
+   годится: репозиторий и сервис на одной машине, поэтому после пуша он уже совпадает.
+3. Для нового коммита спрашивает у GitHub API статус CI **именно для него**.
    Пока идёт проверка или она упала, деплой не выполняется.
 4. После зелёного CI: `git merge --ff-only`, `pip install -e .` (только при изменении
    `pyproject.toml`), `systemctl restart universal-bot`, ожидание `is-active`.
