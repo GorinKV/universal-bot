@@ -2,34 +2,59 @@
 
 import logging
 
+from aiogram import Bot
+from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.config import settings
+from app.repositories import users
 from app.services import reports
 from app.services.backup import create_and_send_backup
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler(timezone=settings.scheduler_timezone)
 
-async def send_daily_report(bot, report_type: str):
-    """Отправляет отчет админу (пока одному пользователю)."""
-    try:
-        if report_type == "morning":
-            text = await reports.morning_digest(settings.admin_id)
-        elif report_type == "midday":
-            text = await reports.midday_report(settings.admin_id)
-        elif report_type == "evening":
-            text = await reports.evening_report(settings.admin_id)
-        else:
-            return
 
-        await bot.send_message(settings.admin_id, text)
-        logger.info("Отправлен %s отчет", report_type)
-    except Exception as e:
-        logger.error("Ошибка отправки отчета %s: %s", report_type, e)
+async def _build_report(user_id: int, report_type: str) -> str | None:
+    if report_type == "morning":
+        return await reports.morning_digest(user_id)
+    if report_type == "midday":
+        return await reports.midday_report(user_id)
+    if report_type == "evening":
+        return await reports.evening_report(user_id)
+    return None
 
-def start_scheduler(bot):
+
+async def send_daily_report(bot: Bot, report_type: str) -> None:
+    """Отправляет отчёт каждому пользователю с включёнными отчётами."""
+    recipients = await users.get_report_recipients()
+    if not recipients:
+        logger.warning("Нет получателей отчёта %s", report_type)
+        return
+
+    sent = 0
+    for user_id in recipients:
+        try:
+            text = await _build_report(user_id, report_type)
+            if not text:
+                continue
+            await bot.send_message(user_id, text)
+            sent += 1
+        except TelegramForbiddenError:
+            # Пользователь заблокировал бота — больше не шлём ему отчёты
+            await users.set_reports(user_id, False)
+            logger.warning("Пользователь %s заблокировал бота, отчёты выключены", user_id)
+        except TelegramRetryAfter as e:
+            logger.warning("Flood control для %s: пауза %s с", user_id, e.retry_after)
+        except Exception as e:
+            # Сбой на одном получателе не должен останавливать рассылку остальным
+            logger.error("Ошибка отчёта %s для %s: %s", report_type, user_id, e)
+
+    logger.info("Отчёт %s отправлен %s/%s пользователям", report_type, sent, len(recipients))
+
+
+def start_scheduler(bot: Bot) -> None:
     """Регистрирует задачи по времени."""
     # 04:00 Бэкап всего
     scheduler.add_job(
@@ -55,6 +80,7 @@ def start_scheduler(bot):
     scheduler.start()
     logger.info("Планировщик запущен (Europe/Moscow)")
 
-def stop_scheduler():
+
+def stop_scheduler() -> None:
     scheduler.shutdown()
     logger.info("Планировщик остановлен")

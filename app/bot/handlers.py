@@ -15,7 +15,7 @@ from aiogram.types import (
 
 from app.bot.formatting import SAFE_LIMIT, split_text
 from app.config import settings
-from app.repositories import git_projects, items
+from app.repositories import git_projects, items, users
 from app.services import gigachat, git_manager, whisper
 from app.services.backup import create_and_send_backup
 from app.services.health import collect_health
@@ -94,6 +94,7 @@ async def cmd_help(message: Message) -> None:
         "<b>Голос:</b> просто отправь голосовое.\n"
         "<b>ИИ:</b> любой текст не-команда уходит в GigaChat.\n"
         "/reset — сбросить контекст ИИ.\n"
+        "/reports on|off — ежедневные отчёты.\n"
         "/health — проверка систем."
     )
 
@@ -114,6 +115,33 @@ async def cmd_reset(message: Message) -> None:
     if message.from_user:
         gigachat.reset_history(message.from_user.id)
     await message.answer("🧹 Контекст ИИ сброшен.")
+
+
+@router.message(Command("reports"))
+async def cmd_reports(message: Message, command: CommandObject) -> None:
+    """Показывает или переключает ежедневные отчёты пользователя."""
+    if not message.from_user:
+        return
+    arg = (command.args or "").strip().lower()
+
+    if not arg:
+        enabled = await users.reports_enabled(message.from_user.id)
+        state = "включены" if enabled else "выключены"
+        await message.answer(
+            f"🔔 Ежедневные отчёты: <b>{state}</b>\n\n"
+            "Утро — 07:00, промежуточный — 17:00, вечерний — 20:40 (МСК).\n"
+            "Включить: /reports on\nВыключить: /reports off"
+        )
+        return
+
+    if arg in ("on", "вкл", "да"):
+        await users.set_reports(message.from_user.id, True)
+        await message.answer("🔔 Отчёты включены: 07:00, 17:00 и 20:40 (МСК).")
+    elif arg in ("off", "выкл", "нет"):
+        await users.set_reports(message.from_user.id, False)
+        await message.answer("🔕 Отчёты выключены. Вернуть: /reports on")
+    else:
+        await message.answer("Использование: /reports on или /reports off")
 
 
 @router.message(Command("backup"))

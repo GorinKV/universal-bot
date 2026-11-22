@@ -11,7 +11,9 @@ from aiogram.enums import ParseMode
 from aiogram.types import BotCommand, ErrorEvent
 
 from app.bot.handlers import router
+from app.bot.middleware import UserMiddleware
 from app.config import settings
+from app.repositories import users
 from app.services.db import close_db, init_db
 from app.services.health import log_startup_info
 from app.services.scheduler import start_scheduler, stop_scheduler
@@ -24,6 +26,7 @@ async def set_commands(bot: Bot) -> None:
         BotCommand(command="start", description="Начать работу"),
         BotCommand(command="tasks", description="Задачи"),
         BotCommand(command="ideas", description="Идеи"),
+        BotCommand(command="reports", description="Отчёты"),
         BotCommand(command="git", description="Git-менеджер"),
         BotCommand(command="help", description="Справка"),
         BotCommand(command="health", description="Проверка"),
@@ -57,6 +60,8 @@ async def main() -> None:
     log_startup_info()
 
     await init_db()
+    # Админ всегда в списке получателей отчётов, даже если ещё не писал боту
+    await users.touch(settings.admin_id, None, "Admin")
 
     bot = Bot(
         token=settings.bot_token,
@@ -66,6 +71,8 @@ async def main() -> None:
     start_scheduler(bot)
 
     dp = Dispatcher()
+    # Регистрируем каждого, кто пишет боту (нужно для рассылки отчётов)
+    dp.update.outer_middleware(UserMiddleware())
     dp.include_router(router)
 
     # Регистрируем обработчик ошибок

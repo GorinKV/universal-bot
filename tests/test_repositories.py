@@ -63,3 +63,53 @@ async def test_get_ideas(mock_db):
 
     assert len(result) == 1
     assert result[0]["title"] == "Идея сыра"
+
+
+@pytest.mark.asyncio
+async def test_mutations_scoped_to_owner(mock_db):
+    """Изменения всегда ограничены владельцем записи (user_id), а не только id."""
+    pool, conn, cur = mock_db
+    cur.rowcount = 1
+
+    await items.mark_done(user_id=2, item_id=10)
+    sql, args = cur.execute.call_args[0]
+    assert "AND user_id=%s" in sql
+    assert args == (10, 2)
+
+    await items.delete(user_id=2, item_id=10)
+    sql, args = cur.execute.call_args[0]
+    assert "AND user_id=%s" in sql
+    assert args == (10, 2)
+
+    await items.clear_all(user_id=2)
+    sql, args = cur.execute.call_args[0]
+    assert "WHERE user_id=%s" in sql
+    assert args == (2,)
+
+
+@pytest.mark.asyncio
+async def test_list_scoped_to_owner(mock_db):
+    pool, conn, cur = mock_db
+    cur.fetchall.return_value = []
+
+    await items.get_list(user_id=7, status="todo")
+    sql, args = cur.execute.call_args[0]
+    assert "WHERE user_id=%s" in sql
+    assert args == (7,)
+
+    await items.get_ideas(user_id=7)
+    sql, args = cur.execute.call_args[0]
+    assert "WHERE user_id=%s" in sql
+    assert args == (7,)
+
+
+@pytest.mark.asyncio
+async def test_undo_scoped_to_owner(mock_db):
+    pool, conn, cur = mock_db
+    cur.fetchone.return_value = (5,)
+
+    await items.undo_by_position(user_id=9, pos=1)
+
+    first_sql, first_args = cur.execute.call_args_list[0][0]
+    assert "WHERE user_id=%s" in first_sql
+    assert first_args == (9, 0)
