@@ -19,6 +19,7 @@ from app.config import settings
 from app.repositories import git_projects, items, users
 from app.services import gigachat, git_manager, whisper
 from app.services import scheduler as sched_mod
+from app.services import stats as stats_svc
 from app.services.backup import create_and_send_backup
 from app.services.health import collect_health
 
@@ -101,6 +102,7 @@ async def cmd_help(message: Message) -> None:
         "<b>ИИ:</b> любой текст не-команда уходит в GigaChat.\n"
         "/reset — сбросить контекст ИИ.\n"
         "/reports on|off — ежедневные отчёты.\n"
+        "/stats — статистика за неделю.\n"
         "/health — проверка систем."
     )
 
@@ -148,6 +150,13 @@ async def cmd_reports(message: Message, command: CommandObject) -> None:
         await message.answer("🔕 Отчёты выключены. Вернуть: /reports on")
     else:
         await message.answer("Использование: /reports on или /reports off")
+
+
+@router.message(Command("stats"))
+async def cmd_stats(message: Message) -> None:
+    if not message.from_user:
+        return
+    await message.answer(stats_svc.format_stats(await stats_svc.week_stats(message.from_user.id)))
 
 
 @router.message(Command("backup"))

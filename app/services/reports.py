@@ -3,6 +3,7 @@
 from datetime import datetime
 
 from app.repositories import items
+from app.services import stats as stats_svc
 
 
 async def morning_digest(user_id: int) -> str:
@@ -54,12 +55,13 @@ async def midday_report(user_id: int) -> str:
 async def evening_report(user_id: int) -> str:
     done_today = await items.get_by_period(user_id, 'day')
 
-    if not done_today:
-        return "🌙 <b>Вечерний отчёт</b>\n\nСегодня ничего не выполнено. Завтра будет новый день, всё получится! 💪"
-
-    text = "<b>🌙 Вечерний отчёт</b>\n\nТы сегодня молодец! Сделано:\n"
-    for t in done_today:
-        text += f"✅ {t['title']}\n"
-
-    text += "\nТак держать! 🥂"
+    text = "<b>🌙 Вечерний отчёт</b>\n\n"
+    if done_today:
+        text += "Ты сегодня молодец! Сделано:\n"
+        for t in done_today:
+            text += f"✅ {t['title']}\n"
+        text += "\nТак держать! 🥂\n\n"
+    else:
+        text += "Сегодня ничего не выполнено. Завтра будет новый день, всё получится! 💪\n\n"
+    text += stats_svc.format_stats(await stats_svc.week_stats(user_id))
     return text

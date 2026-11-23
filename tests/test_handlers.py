@@ -12,6 +12,7 @@ from app.bot.handlers import (
     cmd_remind,
     cmd_reports,
     cmd_start,
+    cmd_stats,
 )
 
 
@@ -308,3 +309,19 @@ async def test_cmd_remind_lists_tasks_without_args(mock_get_list):
     text = message.answer.call_args[0][0]
     assert "[1] А" in text and "напомнить: 01.01 08:00" in text
     assert "[2] Б" in text and "напомнить: 02.01 07:00" in text
+
+
+# --- /stats ---
+
+@pytest.mark.asyncio
+@patch("app.bot.handlers.stats_svc.week_stats")
+async def test_cmd_stats(mock_week_stats):
+    mock_week_stats.return_value = {"done": 3, "total": 5, "open": 2, "peak_day": "20.11", "peak_n": 3}
+    message = AsyncMock()
+    message.from_user = MagicMock()
+    message.from_user.id = 5
+
+    await cmd_stats(message)
+
+    mock_week_stats.assert_awaited_once_with(5)
+    assert "Выполнено за неделю: <b>3</b>" in message.answer.call_args[0][0]

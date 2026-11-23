@@ -27,6 +27,7 @@ async def set_commands(bot: Bot) -> None:
         BotCommand(command="tasks", description="Задачи"),
         BotCommand(command="ideas", description="Идеи"),
         BotCommand(command="reports", description="Отчёты"),
+        BotCommand(command="stats", description="Статистика"),
         BotCommand(command="remind", description="Напоминания"),
         BotCommand(command="git", description="Git-менеджер"),
         BotCommand(command="help", description="Справка"),
