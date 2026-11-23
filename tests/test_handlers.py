@@ -10,6 +10,7 @@ from app.bot.handlers import (
     cmd_add_item,
     cmd_clear,
     cmd_remind,
+    cmd_repeat,
     cmd_reports,
     cmd_start,
     cmd_stats,
@@ -325,3 +326,101 @@ async def test_cmd_stats(mock_week_stats):
 
     mock_week_stats.assert_awaited_once_with(5)
     assert "Выполнено за неделю: <b>3</b>" in message.answer.call_args[0][0]
+
+
+# --- /repeat ---
+
+@pytest.mark.asyncio
+@patch("app.bot.handlers.items.get_list")
+async def test_cmd_repeat_list_empty(mock_get_list):
+    mock_get_list.return_value = []
+    message = AsyncMock()
+    message.from_user = MagicMock()
+    message.from_user.id = 5
+    command = MagicMock()
+    command.args = None
+
+    await cmd_repeat(message, command)
+
+    assert "нет" in message.answer.call_args[0][0]
+
+
+@pytest.mark.asyncio
+@patch("app.bot.handlers.items.get_list")
+async def test_cmd_repeat_list_with_repeats(mock_get_list):
+    mock_get_list.return_value = [
+        {"id": 3, "title": "Вода", "due": "10.12", "repeat": "monthly", "repeat_every": 1},
+    ]
+    message = AsyncMock()
+    message.from_user = MagicMock()
+    message.from_user.id = 5
+    command = MagicMock()
+    command.args = None
+
+    await cmd_repeat(message, command)
+
+    assert "[3] Вода" in message.answer.call_args[0][0]
+
+
+@pytest.mark.asyncio
+@patch("app.bot.handlers.items.find_by_id")
+@patch("app.bot.handlers.items.set_repeat")
+async def test_cmd_repeat_set_monthly_3(mock_set_repeat, mock_row):
+    mock_row.return_value = {"id": 10, "title": "x", "repeat": "none"}
+    mock_set_repeat.return_value = True
+    message = AsyncMock()
+    message.from_user = MagicMock()
+    message.from_user.id = 5
+    command = MagicMock()
+    command.args = "10 monthly 3"
+
+    await cmd_repeat(message, command)
+
+    mock_set_repeat.assert_awaited_once_with(5, 10, "monthly", 3)
+    assert "monthly" in message.answer.call_args[0][0]
+
+
+@pytest.mark.asyncio
+@patch("app.bot.handlers.items.find_by_id")
+@patch("app.bot.handlers.items.set_repeat")
+async def test_cmd_repeat_off(mock_set_repeat, mock_row):
+    mock_row.return_value = {"id": 10, "title": "x", "repeat": "daily"}
+    mock_set_repeat.return_value = True
+    message = AsyncMock()
+    message.from_user = MagicMock()
+    message.from_user.id = 5
+    command = MagicMock()
+    command.args = "10 off"
+
+    await cmd_repeat(message, command)
+
+    mock_set_repeat.assert_awaited_once_with(5, 10, "none")
+    assert "отключён" in message.answer.call_args[0][0]
+
+
+@pytest.mark.asyncio
+@patch("app.bot.handlers.items.find_by_id")
+async def test_cmd_repeat_unknown_id(mock_row):
+    mock_row.return_value = None
+    message = AsyncMock()
+    message.from_user = MagicMock()
+    message.from_user.id = 5
+    command = MagicMock()
+    command.args = "999 daily"
+
+    await cmd_repeat(message, command)
+
+    assert "Нет активной задачи" in message.answer.call_args[0][0]
+
+
+@pytest.mark.asyncio
+async def test_cmd_repeat_usage_error():
+    message = AsyncMock()
+    message.from_user = MagicMock()
+    message.from_user.id = 5
+    command = MagicMock()
+    command.args = "10 weird"
+
+    await cmd_repeat(message, command)
+
+    assert "Использование" in message.answer.call_args[0][0]

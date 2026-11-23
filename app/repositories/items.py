@@ -1,10 +1,52 @@
 """Работа с таблицей items (задачи и идеи)."""
 
+import calendar
+from datetime import date, datetime, time, timedelta
 from typing import cast
 
 import asyncmy
 
 from app.services.db import get_pool
+
+
+def next_occurrence(base: datetime | date | None, repeat: str, every: int = 1) -> datetime | None:
+    """Следующее вхождение повторяющейся задачи. None — неподдерживаемый repeat."""
+    if base is None:
+        base = datetime.now()
+    elif isinstance(base, date) and not isinstance(base, datetime):
+        base = datetime.combine(base, time())
+    every = max(1, int(every))
+    if repeat == 'daily':
+        return base + timedelta(days=every)
+    if repeat == 'weekly':
+        return base + timedelta(days=7 * every)
+    if repeat == 'monthly':
+        return _add_months(base, every)
+    return None
+
+
+def _add_months(d: datetime, months: int) -> datetime:
+    y = d.year + (d.month - 1 + months) // 12
+    m = (d.month - 1 + months) % 12 + 1
+    day = min(d.day, calendar.monthrange(y, m)[1])
+    return d.replace(year=y, month=m, day=day)
+
+
+def _to_dt(value) -> datetime | None:
+    """Безопасный парсер DB-даты в наивный datetime."""
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime.combine(value, time())
+    if not value:
+        return None
+    s = str(value).strip()
+    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d'):
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    return None
 
 
 async def add(user_id: int, title: str, item_type: str = 'task', due_at: str | None = None,
@@ -31,7 +73,7 @@ async def get_list(user_id: int, status: str = 'todo') -> list[dict]:
             else:
                 await cur.execute(
                     "SELECT id, title, type, DATE_FORMAT(due_at, '%%d.%%m') as due, DATE_FORMAT(created_at, '%%d.%%m') as dt, "
-                    "DATE_FORMAT(remind_at, '%%d.%%m %%H:%%M') as remind "
+                    "DATE_FORMAT(remind_at, '%%d.%%m %%H:%%M') as remind, repeat, repeat_every "
                     "FROM items WHERE user_id=%s AND status='todo' ORDER BY id ASC",
                     (user_id,)
                 )
@@ -57,12 +99,48 @@ async def get_by_period(user_id: int, period: str) -> list[dict]:
 
 
 async def mark_done(user_id: int, item_id: int) -> bool:
+    """Выполняет задачу. Если задача повторяющаяся — возвращает её в активные со следующим вхождением."""
+    row = await find_by_id(user_id, item_id)
+    if row is None:
+        return False
+
+    repeat = row.get('repeat') or 'none'
+    every = row.get('repeat_every') or 1
+    new_due = None
+    if repeat in ('daily', 'weekly', 'monthly'):
+        base = _to_dt(row.get('due_at')) or datetime.now()
+        cand = next_occurrence(base, repeat, every)
+        if cand is None or cand <= datetime.now():
+            cand = next_occurrence(datetime.now(), repeat, every)
+        if cand is not None:
+            new_due = cand.strftime('%Y-%m-%d %H:%M:%S')
+
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            if new_due:
+                await cur.execute(
+                    "UPDATE items SET status='todo', done_at=NULL, due_at=%s "
+                    "WHERE id=%s AND user_id=%s AND status='todo'",
+                    (new_due, item_id, user_id)
+                )
+            else:
+                await cur.execute(
+                    "UPDATE items SET status='done', done_at=NOW() WHERE id=%s AND user_id=%s AND status='todo'",
+                    (item_id, user_id)
+                )
+            return cast(int, cur.rowcount) > 0
+
+
+async def set_repeat(user_id: int, item_id: int, repeat: str = 'none', every: int | None = None) -> bool:
+    """Устанавливает/сбрасывает повтор для активной задачи."""
     pool = get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "UPDATE items SET status='done', done_at=NOW() WHERE id=%s AND user_id=%s AND status='todo'",
-                (item_id, user_id)
+                "UPDATE items SET repeat=%s, repeat_every=%s "
+                "WHERE id=%s AND user_id=%s AND status='todo'",
+                (repeat, every if every is not None else 1, item_id, user_id)
             )
             return cast(int, cur.rowcount) > 0
 
@@ -115,7 +193,8 @@ async def find_by_id(user_id: int, item_id: int) -> dict | None:
     async with pool.acquire() as conn:
         async with conn.cursor(asyncmy.cursors.DictCursor) as cur:
             await cur.execute(
-                "SELECT id, title FROM items WHERE user_id=%s AND status='todo' AND id=%s",
+                "SELECT id, title, due_at, repeat, repeat_every FROM items "
+                "WHERE user_id=%s AND status='todo' AND id=%s",
                 (user_id, item_id)
             )
             return await cur.fetchone()

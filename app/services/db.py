@@ -58,6 +58,21 @@ async def init_db() -> None:
                 if await cur.fetchone() is None:
                     await cur.execute("ALTER TABLE items ADD COLUMN remind_at DATETIME NULL")
                     logger.info("Миграция: добавлен items.remind_at")
+                # Повтор задач: 'none' | 'daily' | 'weekly' | 'monthly', repeat_every = N единиц
+                await cur.execute(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_NAME='items' AND COLUMN_NAME='repeat'"
+                )
+                if await cur.fetchone() is None:
+                    await cur.execute(
+                        "ALTER TABLE items ADD COLUMN repeat "
+                        "ENUM('none', 'daily', 'weekly', 'monthly') NOT NULL DEFAULT 'none'")
+                await cur.execute(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_NAME='items' AND COLUMN_NAME='repeat_every'"
+                )
+                if await cur.fetchone() is None:
+                    await cur.execute("ALTER TABLE items ADD COLUMN repeat_every INT NULL")
                 # Таблица git-проектов
                 await cur.execute("""
                     CREATE TABLE IF NOT EXISTS git_projects (

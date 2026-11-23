@@ -48,10 +48,12 @@ async def test_mark_done(mock_db):
     result = await items.mark_done(user_id=1, item_id=10)
 
     assert result is True
-    cur.execute.assert_called_once()
-    args, _ = cur.execute.call_args
-    assert "UPDATE items SET status='done'" in args[0]
-    assert args[1] == (10, 1)
+    # mark_done сначала читает задачу (find_by_id), потом обновляет
+    assert cur.execute.call_count == 2
+    assert cur.execute.call_args_list[0].args[0].startswith("SELECT id, title, due_at")
+    sql, params = cur.execute.call_args_list[1].args
+    assert "UPDATE items SET status='done'" in sql
+    assert params == (10, 1)
 
 
 @pytest.mark.asyncio

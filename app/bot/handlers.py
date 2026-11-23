@@ -96,6 +96,9 @@ async def cmd_help(message: Message) -> None:
         "<b>Напоминания:</b>\n"
         "/remind — список задач с напоминаниями\n"
         "/remind &lt;ID&gt; &lt;мин&gt; — напоминать за минуты до срока\n\n"
+        "<b>Повторы:</b>\n"
+        "/repeat — список повторяющихся задач\n"
+        "/repeat &lt;ID&gt; daily|weekly|monthly — повторять задачу\n\n"
         "<b>Git:</b>\n"
         "/git — справка по командам\n\n"
         "<b>Голос:</b> просто отправь голосовое.\n"
@@ -366,6 +369,63 @@ async def cmd_remind(message: Message, command: CommandObject) -> None:
         )
     else:
         await message.answer("⚠️ Задачи нет или уже выполнена.")
+
+
+@router.message(Command("repeat"))
+async def cmd_repeat(message: Message, command: CommandObject) -> None:
+    """Показывает или настраивает повторяющиеся задачи."""
+    if not message.from_user:
+        return
+    uid = message.from_user.id
+    args = (command.args or '').strip()
+
+    if not args:
+        todo = await items.get_list(uid, 'todo')
+        with_rep = [i for i in todo if i.get('repeat') and i.get('repeat') != 'none']
+        if not with_rep:
+            text = ("🔄 Повторяющиеся задачи — нет\n\n"
+                    "/repeat <ID> daily — повторять каждый день\n"
+                    "/repeat <ID> weekly — каждую неделю\n"
+                    "/repeat <ID> monthly — каждый месяц\n"
+                    "/repeat <ID> off — отключить\n\n"
+                    f"Задачи: {', '.join(f'[{i['id']}] {i['title']}' for i in todo) if todo else 'нет'}")
+            await message.answer(text)
+            return
+        lines = "\n".join(
+            f"[{i['id']}] {i['title']} — <b>{i['repeat']}</b>"
+            + (f" (каждый(е) {i['repeat_every']})" if i.get('repeat_every') else "")
+            + (f" (до {i['due']})" if i.get('due') else "")
+            for i in with_rep
+        )
+        await message.answer("<b>🔄 Повторы:</b>\n\n" + lines)
+        return
+
+    parts = args.split()
+    if len(parts) < 2 or not parts[0].isdigit() or parts[1].lower() not in ('off', 'daily', 'weekly', 'monthly'):
+        await message.answer("Использование: /repeat <ID> daily|weekly|monthly [N] | off")
+        return
+
+    item_id = int(parts[0])
+    mode = parts[1].lower()
+    row = await items.find_by_id(uid, item_id)
+    if not row:
+        await message.answer(f"⚠️ Нет активной задачи [{item_id}].")
+        return
+
+    if mode == 'off':
+        if await items.set_repeat(uid, item_id, 'none'):
+            await message.answer("🔄 Повтор отключён.")
+        else:
+            await message.answer("⚠️ Задачи нет.")
+        return
+
+    every = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() and int(parts[2]) > 0 else 1
+    if await items.set_repeat(uid, item_id, mode, every):
+        unit = {'daily': 'день', 'weekly': 'неделя', 'monthly': 'месяц'}[mode]
+        freq = f"каждый {unit}" if every == 1 else f"каждые {every} {unit}"
+        await message.answer(f"🔄 Повтор установлен: <b>{mode}</b>, {freq}.")
+    else:
+        await message.answer("⚠️ Задачи нет.")
 
 
 @router.message(Command("del"))
