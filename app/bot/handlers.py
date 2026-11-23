@@ -2,6 +2,7 @@
 
 import html
 import re
+from datetime import datetime, time, timedelta
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
@@ -17,6 +18,7 @@ from app.bot.formatting import SAFE_LIMIT, split_text
 from app.config import settings
 from app.repositories import git_projects, items, users
 from app.services import gigachat, git_manager, whisper
+from app.services import scheduler as sched_mod
 from app.services.backup import create_and_send_backup
 from app.services.health import collect_health
 
@@ -46,6 +48,7 @@ async def cb_done(callback: CallbackQuery) -> None:
         await callback.answer()
         return
     if await items.mark_done(callback.from_user.id, int(data)):
+        sched_mod.cancel_reminder(callback.from_user.id, int(data))
         await callback.answer("✅ Выполнено!")
         try:
             await callback.message.edit_reply_markup(reply_markup=None)
@@ -89,6 +92,9 @@ async def cmd_help(message: Message) -> None:
         "/undo &lt;N&gt; — вернуть N-ю из выполненных\n"
         "/del &lt;ID&gt; — удалить\n"
         "/clear — удалить всё\n\n"
+        "<b>Напоминания:</b>\n"
+        "/remind — список задач с напоминаниями\n"
+        "/remind &lt;ID&gt; &lt;мин&gt; — напоминать за минуты до срока\n\n"
         "<b>Git:</b>\n"
         "/git — справка по командам\n\n"
         "<b>Голос:</b> просто отправь голосовое.\n"
@@ -256,6 +262,7 @@ async def cmd_done(message: Message, command: CommandObject) -> None:
         await message.answer("Использование: /done <ID>")
         return
     if await items.mark_done(message.from_user.id, int(command.args)):
+        sched_mod.cancel_reminder(message.from_user.id, int(command.args))
         await message.answer("✅ Выполнено!")
     else:
         await message.answer("⚠️ Не найдено или уже выполнено.")
@@ -272,6 +279,84 @@ async def cmd_undo(message: Message, command: CommandObject) -> None:
         await message.answer("🔄 Возвращено в активные.")
     else:
         await message.answer("⚠️ Не найдено.")
+
+
+@router.message(Command("remind"))
+async def cmd_remind(message: Message, command: CommandObject) -> None:
+    """Показывает или настраивает напоминания по активным задачам."""
+    if not message.from_user:
+        return
+    uid = message.from_user.id
+    args = (command.args or "").strip()
+
+    if not args:
+        todo = await items.get_list(uid, 'todo')
+        with_rem = [i for i in todo if i.get('remind')]
+        if not with_rem:
+            text = "<b>⏰ Напоминания ещё не настроены.</b>\n\n"
+            if todo:
+                text += "Задачи: " + ", ".join(f"[{i['id']}] {i['title']}" for i in todo) + "\n\n"
+            text += (
+                "/remind <ID> <мин> — напоминать за минуты до срока\n"
+                "/remind <ID> <чч:мм> — напоминать сегодня во время\n"
+                "/remind <ID> off — сбросить"
+            )
+            await message.answer(text)
+            return
+        lines = "\n".join(
+            f"[{i['id']}] {i['title']}"
+            + (f" (до {i['due']})" if i.get('due') else "")
+            + f" — напомнить: {i['remind']}"
+            for i in with_rem
+        )
+        await message.answer("<b>⏰ Задачи с напоминаниями:</b>\n\n" + lines)
+        return
+
+    parts = args.split()
+    if len(parts) != 2 or not parts[0].isdigit():
+        await message.answer("Использование: /remind <ID> [минут|чч:мм] | off")
+        return
+
+    item_id = int(parts[0])
+    arg = parts[1]
+    row = await items.get_todo_by_id(uid, item_id)
+    if not row:
+        await message.answer(f"⚠️ Нет активной задачи [{item_id}].")
+        return
+
+    if arg.lower() == 'off':
+        if await items.set_remind(uid, item_id, None):
+            sched_mod.cancel_reminder(uid, item_id)
+            await message.answer("🔕 Напоминание сброшено.")
+        else:
+            await message.answer("⚠️ Задачи нет.")
+        return
+
+    now = datetime.now()
+    if arg.isdigit():
+        due = row.get('due_at')
+        if due:
+            remind_dt = due - timedelta(minutes=int(arg))
+            if remind_dt <= now:
+                remind_dt = now + timedelta(minutes=30)
+        else:
+            remind_dt = now + timedelta(minutes=int(arg))
+    else:
+        m = re.fullmatch(r"(\d{1,2}):(\d{2})", arg)
+        if not m:
+            await message.answer("Неверный формат: укажи минуты или часы в виде HH:MM.")
+            return
+        remind_dt = datetime.combine(now.date(), time(int(m.group(1)), int(m.group(2))))
+        if remind_dt <= now:
+            remind_dt += timedelta(days=1)
+
+    if await items.set_remind(uid, item_id, remind_dt.strftime('%Y-%m-%d %H:%M:%S')):
+        await sched_mod.schedule_item_reminder(uid, item_id)
+        await message.answer(
+            f"⏰ Напомню: <b>{html.escape(row['title'])}</b> — {remind_dt:%d.%m %H:%M}"
+        )
+    else:
+        await message.answer("⚠️ Задачи нет или уже выполнена.")
 
 
 @router.message(Command("del"))

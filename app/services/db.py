@@ -46,9 +46,18 @@ async def init_db() -> None:
                         due_at DATETIME NULL,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         done_at DATETIME NULL,
+                        remind_at DATETIME NULL,
                         INDEX idx_user_status (user_id, status)
                     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
                 """)
+                # Миграция: remind_at для таблиц, созданных до неё (CREATE TABLE снизу не помогает)
+                await cur.execute(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_NAME='items' AND COLUMN_NAME='remind_at'"
+                )
+                if await cur.fetchone() is None:
+                    await cur.execute("ALTER TABLE items ADD COLUMN remind_at DATETIME NULL")
+                    logger.info("Миграция: добавлен items.remind_at")
                 # Таблица git-проектов
                 await cur.execute("""
                     CREATE TABLE IF NOT EXISTS git_projects (

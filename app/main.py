@@ -27,6 +27,7 @@ async def set_commands(bot: Bot) -> None:
         BotCommand(command="tasks", description="Задачи"),
         BotCommand(command="ideas", description="Идеи"),
         BotCommand(command="reports", description="Отчёты"),
+        BotCommand(command="remind", description="Напоминания"),
         BotCommand(command="git", description="Git-менеджер"),
         BotCommand(command="help", description="Справка"),
         BotCommand(command="health", description="Проверка"),
@@ -68,7 +69,7 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
 
-    start_scheduler(bot)
+    await start_scheduler(bot)
 
     dp = Dispatcher()
     # Регистрируем каждого, кто пишет боту (нужно для рассылки отчётов)

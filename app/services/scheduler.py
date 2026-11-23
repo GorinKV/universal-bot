@@ -1,19 +1,85 @@
 """Планировщик задач (APScheduler)."""
 
+import html
 import logging
+from datetime import datetime
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 
 from app.config import settings
-from app.repositories import users
+from app.repositories import items, users
 from app.services import reports
 from app.services.backup import create_and_send_backup
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler(timezone=settings.scheduler_timezone)
+_bot: Bot | None = None
+
+
+def _reminder_job_id(user_id: int, item_id: int) -> str:
+    return f"reminder:{user_id}:{item_id}"
+
+
+async def send_reminder(user_id: int, item_id: int) -> None:
+    """Отправляет уведомление о напоминании (задача должна быть активной)."""
+    if not _bot:
+        return
+    row = await items.find_by_id(user_id, item_id)
+    if not row:
+        return
+    try:
+        await _bot.send_message(
+            user_id, f"⏰ Напоминание: <b>{html.escape(row['title'])}</b>"
+        )
+        logger.info("Напоминание отправлено пользователю %s (задача %s)", user_id, item_id)
+    except TelegramForbiddenError:
+        logger.warning("Пользователь %s заблокировал бота", user_id)
+    except Exception as e:
+        logger.error("Ошибка напоминания %s/%s: %s", user_id, item_id, e)
+
+
+def _add_reminder_job(user_id: int, item_id: int, remind_at) -> None:
+    # remind_at — наивная серверная стена (как в DB и datetime.now()):
+    # локальный wall-clock процесса и стена базы одной временной зоны.
+    # DateTrigger берёт локальную зону процесса, а settings.scheduler_timezone
+    # на этом сервере отличается — поэтому сделаем naive run_date.
+    if isinstance(remind_at, str):
+        remind_at = datetime.strptime(remind_at[:16], "%Y-%m-%d %H:%M")
+    elif isinstance(remind_at, datetime) and remind_at.tzinfo is not None:
+        remind_at = remind_at.replace(tzinfo=None)
+    job_id = _reminder_job_id(user_id, item_id)
+    if scheduler.get_job(job_id):
+        return
+    scheduler.add_job(
+        send_reminder, DateTrigger(run_date=remind_at),
+        args=[user_id, item_id], id=job_id
+    )
+
+
+async def schedule_item_reminder(user_id: int, item_id: int) -> None:
+    """Создаёт/обновляет таймер напоминания для задачи, если remind_at задан."""
+    row = await items.get_todo_by_id(user_id, item_id)
+    if row and row.get("remind_at"):
+        _add_reminder_job(user_id, item_id, row["remind_at"])
+
+
+def cancel_reminder(user_id: int, item_id: int) -> None:
+    """Отменяет таймер напоминания для задачи (задача выполнена/удалена)."""
+    job_id = _reminder_job_id(user_id, item_id)
+    if scheduler.get_job(job_id):
+        scheduler.remove_job(job_id)
+
+
+async def reload_reminders() -> None:
+    """Пересоздаёт таймеры для всех напоминаний, уже хранящихся в БД."""
+    for row in await items.get_pending_reminders():
+        _add_reminder_job(row["user_id"], row["id"], row["remind_at"])
+    logger.info("Созданы таймеры для напоминаний: %s",
+                len([j for j in scheduler.get_jobs() if j.id.startswith("reminder:")]))
 
 
 async def _build_report(user_id: int, report_type: str) -> str | None:
@@ -54,8 +120,10 @@ async def send_daily_report(bot: Bot, report_type: str) -> None:
     logger.info("Отчёт %s отправлен %s/%s пользователям", report_type, sent, len(recipients))
 
 
-def start_scheduler(bot: Bot) -> None:
-    """Регистрирует задачи по времени."""
+async def start_scheduler(bot: Bot) -> None:
+    """Регистрирует задачи по времени (включая напоминания)."""
+    global _bot
+    _bot = bot
     # 04:00 Бэкап всего
     scheduler.add_job(
         create_and_send_backup, CronTrigger(hour=4, minute=0),
@@ -78,6 +146,7 @@ def start_scheduler(bot: Bot) -> None:
     )
 
     scheduler.start()
+    await reload_reminders()
     logger.info("Планировщик запущен (Europe/Moscow)")
 
 

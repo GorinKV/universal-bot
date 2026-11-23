@@ -36,8 +36,8 @@ async def test_add_item(mock_db):
     cur.execute.assert_called_once()
     args, _ = cur.execute.call_args
     assert "INSERT INTO items" in args[0]
-    # Добавляем None в конец, так как due_at по умолчанию None
-    assert args[1] == (1, "task", "Купить сыр", None)
+    # due_at и remind_at по умолчанию None
+    assert args[1] == (1, "task", "Купить сыр", None, None)
 
 
 @pytest.mark.asyncio

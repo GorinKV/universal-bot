@@ -7,13 +7,14 @@ import asyncmy
 from app.services.db import get_pool
 
 
-async def add(user_id: int, title: str, item_type: str = 'task', due_at: str | None = None) -> int:
+async def add(user_id: int, title: str, item_type: str = 'task', due_at: str | None = None,
+              remind_at: str | None = None) -> int:
     pool = get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "INSERT INTO items (user_id, type, title, due_at) VALUES (%s, %s, %s, %s)",
-                (user_id, item_type, title, due_at)
+                "INSERT INTO items (user_id, type, title, due_at, remind_at) VALUES (%s, %s, %s, %s, %s)",
+                (user_id, item_type, title, due_at, remind_at)
             )
             return cast(int, cur.lastrowid)
 
@@ -29,7 +30,8 @@ async def get_list(user_id: int, status: str = 'todo') -> list[dict]:
                 )
             else:
                 await cur.execute(
-                    "SELECT id, title, type, DATE_FORMAT(due_at, '%%d.%%m') as due, DATE_FORMAT(created_at, '%%d.%%m') as dt "
+                    "SELECT id, title, type, DATE_FORMAT(due_at, '%%d.%%m') as due, DATE_FORMAT(created_at, '%%d.%%m') as dt, "
+                    "DATE_FORMAT(remind_at, '%%d.%%m %%H:%%M') as remind "
                     "FROM items WHERE user_id=%s AND status='todo' ORDER BY id ASC",
                     (user_id,)
                 )
@@ -137,5 +139,41 @@ async def find_by_title(user_id: int, title: str) -> dict | None:
             await cur.execute(
                 "SELECT id, title FROM items WHERE user_id=%s AND status='todo' AND title LIKE %s ORDER BY id ASC LIMIT 1",
                 (user_id, f"%{title}%")
+            )
+            return await cur.fetchone()
+
+
+async def set_remind(user_id: int, item_id: int, remind_at: str | None) -> bool:
+    """Устанавливает/сбрасывает время напоминания для активной задачи."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE items SET remind_at=%s WHERE id=%s AND user_id=%s AND status='todo'",
+                (remind_at, item_id, user_id)
+            )
+            return cast(int, cur.rowcount) > 0
+
+
+async def get_pending_reminders() -> list[dict]:
+    """Все напоминания в будущем — для пересоздания таймеров при рестарте."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor(asyncmy.cursors.DictCursor) as cur:
+            await cur.execute(
+                "SELECT id, user_id, remind_at, title FROM items "
+                "WHERE status='todo' AND remind_at IS NOT NULL AND remind_at > NOW()"
+            )
+            return await cur.fetchall()
+
+
+async def get_todo_by_id(user_id: int, item_id: int) -> dict | None:
+    """Сырая строка с remind_at (для планировщика) — без фильтра status."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor(asyncmy.cursors.DictCursor) as cur:
+            await cur.execute(
+                "SELECT id, title, remind_at FROM items WHERE id=%s AND user_id=%s AND status='todo'",
+                (item_id, user_id)
             )
             return await cur.fetchone()
