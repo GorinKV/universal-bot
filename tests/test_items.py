@@ -135,7 +135,7 @@ async def test_set_repeat(mock_db):
 
     assert await items.set_repeat(5, 10, 'monthly', 3) is True
     sql, args = cur.execute.call_args[0]
-    assert "SET repeat=%s, repeat_every=%s" in sql
+    assert "SET `repeat`=%s, `repeat_every`=%s" in sql
     assert args == ('monthly', 3, 10, 5)
 
     assert await items.set_repeat(5, 10, 'none') is True

@@ -73,7 +73,7 @@ async def get_list(user_id: int, status: str = 'todo') -> list[dict]:
             else:
                 await cur.execute(
                     "SELECT id, title, type, DATE_FORMAT(due_at, '%%d.%%m') as due, DATE_FORMAT(created_at, '%%d.%%m') as dt, "
-                    "DATE_FORMAT(remind_at, '%%d.%%m %%H:%%M') as remind, repeat, repeat_every "
+                    "DATE_FORMAT(remind_at, '%%d.%%m %%H:%%M') as remind, `repeat`, `repeat_every` "
                     "FROM items WHERE user_id=%s AND status='todo' ORDER BY id ASC",
                     (user_id,)
                 )
@@ -138,7 +138,7 @@ async def set_repeat(user_id: int, item_id: int, repeat: str = 'none', every: in
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "UPDATE items SET repeat=%s, repeat_every=%s "
+                "UPDATE items SET `repeat`=%s, `repeat_every`=%s "
                 "WHERE id=%s AND user_id=%s AND status='todo'",
                 (repeat, every if every is not None else 1, item_id, user_id)
             )
@@ -193,7 +193,7 @@ async def find_by_id(user_id: int, item_id: int) -> dict | None:
     async with pool.acquire() as conn:
         async with conn.cursor(asyncmy.cursors.DictCursor) as cur:
             await cur.execute(
-                "SELECT id, title, due_at, repeat, repeat_every FROM items "
+                "SELECT id, title, due_at, `repeat`, `repeat_every` FROM items "
                 "WHERE user_id=%s AND status='todo' AND id=%s",
                 (user_id, item_id)
             )

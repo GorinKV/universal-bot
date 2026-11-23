@@ -5,17 +5,16 @@
 # с раннеров GitHub. Здесь деплой идёт изнутри VPS, поэтому не зависит ни от
 # секретов, ни от внешнего SSH. Запускается таймером universal-bot-deploy.timer.
 #
-# Важно: репозиторий и сервис живут на одной машине, поэтому локальный HEAD после
-# пуша уже равен origin/main. Признак «нужен деплой» — расхождение origin/main с
-# последним раскатанным коммитом (маркер в ~/.cache), а не с локальным HEAD.
+# Маркер (STATE_FILE): первое поле содержит SHA последнего успешно раскатанного
+# коммита. Пока CI не зелёный, маркер не трогается — без метки журнал
+# "ждём CI" пишем не каждый тик, а при его появлении.
 #
 # Поведение:
-#   - origin/main уже раскатан -> тихий выход 0;
-#   - CI ещё идёт или упал     -> выход 0, попробуем на следующем тике;
-#   - CI зелёный               -> git merge --ff-only (если нужно), pip install
-#                                 (если менялся pyproject.toml), restart сервиса,
-#                                 проверка is-active и запись маркера;
-#   - сервис не поднялся      -> откат на прежний коммит и выход 1.
+#   - remote == deployed и локальное дерево на месте -> тихий выход 0;
+#   - CI ещё идёт или упал -> выход 0, попробуем снова через ~2 минуты;
+#   - CI зелёный -> git merge --ff-only (если нужно), pip install (если
+#     pyproject.toml менялся с прошлой раскатки), restart, проверка is-active;
+#   - сервис не поднялся -> откат на прежний коммит и выход 1.
 
 set -euo pipefail
 
@@ -41,9 +40,11 @@ mkdir -p "$(dirname "$STATE_FILE")"
 git fetch --quiet --prune origin "$BRANCH"
 local_sha="$(git rev-parse HEAD)"
 remote_sha="$(git rev-parse "origin/$BRANCH")"
-deployed_sha="$(awk 'NR==1 {print $1}' "$STATE_FILE" 2>/dev/null || true)"
+# deployed_sha — только если маркер помечен как "deployed"; "waiting" в ignored
+deployed_sha="$(awk '$2 == "deployed" {print $1}' "$STATE_FILE" 2>/dev/null || true)"
+marker="$(cat "$STATE_FILE" 2>/dev/null || true)"
 
-if [ "$remote_sha" = "$deployed_sha" ] && [ "$local_sha" = "$remote_sha" ]; then
+if [ -n "$deployed_sha" ] && [ "$remote_sha" = "$deployed_sha" ] && [ "$local_sha" = "$remote_sha" ]; then
     exit 0
 fi
 
@@ -62,25 +63,28 @@ else:
 )"
 
 if [ "$ci_status" != "completed success" ]; then
-    # Не засоряем журнал: пишем только при смене состояния для этого коммита
-    state="$remote_sha $ci_status"
-    if [ "$(cat "$STATE_FILE" 2>/dev/null || true)" != "$state" ]; then
+    # Пишем в журнал только при смене состояния для этого коммита
+    if [ "$marker" != "$remote_sha waiting" ]; then
         log "ждём CI для ${remote_sha:0:7}: $ci_status"
-        echo "$state" > "$STATE_FILE"
+        echo "$remote_sha waiting" > "$STATE_FILE"
     fi
     exit 0
 fi
 
-log "деплой ${local_sha:0:7} -> ${remote_sha:0:7}"
+# CI зелёный — если мы уже раскатали этот SHA, тихий выход
+if [ -n "$deployed_sha" ] && [ "$remote_sha" = "$deployed_sha" ]; then
+    exit 0
+fi
 
 # Коммит мог прийти с другой машины — подтягиваем его в рабочее дерево
 if [ "$local_sha" != "$remote_sha" ]; then
     git merge --ff-only "origin/$BRANCH" >/dev/null
 fi
 
+log "деплой ${local_sha:0:7} -> ${remote_sha:0:7}"
+
 # Зависимости переустанавливаем только если pyproject.toml менялся с прошлой раскатки
-base_sha="${deployed_sha:-$local_sha}"
-if [ -n "$deployed_sha" ] && ! git diff --quiet "$base_sha" "$remote_sha" -- pyproject.toml; then
+if [ -n "$deployed_sha" ] && ! git diff --quiet "$deployed_sha" "$remote_sha" -- pyproject.toml; then
     log "обновляю зависимости"
     .venv/bin/pip install -q -e . 2>&1 | tail -3
 fi
@@ -103,5 +107,4 @@ log "ошибка: $SERVICE не поднялся, откат на ${local_sha:0
 git reset --hard "$local_sha" >/dev/null
 .venv/bin/pip install -q -e . 2>&1 | tail -3 || true
 sudo -n /usr/bin/systemctl restart "$SERVICE" || true
-# Маркер не трогаем: следующий тик попробует снова
 exit 1

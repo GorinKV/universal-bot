@@ -3,8 +3,11 @@
 import asyncio
 import logging
 import os
+import resource
 import subprocess
 import tempfile
+import time
+import wave
 
 from aiogram import Bot
 from aiogram.types import Voice
@@ -13,6 +16,15 @@ from app.config import settings
 from app.services.asr_fix import fix_text
 
 logger = logging.getLogger(__name__)
+
+
+def _wav_duration(path: str) -> float:
+    """Длительность WAV в секундах (0, если не прочитать)."""
+    try:
+        with wave.open(path, 'rb') as w:
+            return w.getnframes() / float(w.getframerate() or 1)
+    except (OSError, wave.Error, ZeroDivisionError):
+        return 0.0
 
 # Защита от одновременных запусков (1ГБ ОЗУ)
 _semaphore = asyncio.Semaphore(1)
@@ -69,6 +81,8 @@ async def transcribe_voice(bot: Bot, voice: Voice) -> str:
                 "-np",
             ]
             logger.info("Запуск whisper-cli...")
+            audio_secs = _wav_duration(wav_path)
+            t0 = time.monotonic()
             proc = await asyncio.create_subprocess_exec(
                 *whisper_cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -83,7 +97,16 @@ async def transcribe_voice(bot: Bot, voice: Voice) -> str:
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()
+                logger.warning(
+                    "ASR метрики (таймаут): аудио=%.1f с", audio_secs
+                )
                 raise RuntimeError("whisper-cli: превышен таймаут распознавания")
+            # RUSAGE_CHILDREN.ru_maxrss — пиковый RSS дочерних процессов (whisper-cli)
+            rss_mb = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / 1024
+            logger.info(
+                "ASR метрики: аудио=%.1f с, whisper=%.1f с, rss=%.0f МБ",
+                audio_secs, time.monotonic() - t0, rss_mb,
+            )
 
             if proc.returncode != 0:
                 logger.error("whisper-cli stderr: %s", stderr.decode())

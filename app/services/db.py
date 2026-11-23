@@ -47,6 +47,8 @@ async def init_db() -> None:
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         done_at DATETIME NULL,
                         remind_at DATETIME NULL,
+                        `repeat` ENUM('none', 'daily', 'weekly', 'monthly') NOT NULL DEFAULT 'none',
+                        `repeat_every` INT NULL,
                         INDEX idx_user_status (user_id, status)
                     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
                 """)
@@ -65,14 +67,14 @@ async def init_db() -> None:
                 )
                 if await cur.fetchone() is None:
                     await cur.execute(
-                        "ALTER TABLE items ADD COLUMN repeat "
+                        "ALTER TABLE items ADD COLUMN `repeat` "
                         "ENUM('none', 'daily', 'weekly', 'monthly') NOT NULL DEFAULT 'none'")
                 await cur.execute(
                     "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
                     "WHERE TABLE_NAME='items' AND COLUMN_NAME='repeat_every'"
                 )
                 if await cur.fetchone() is None:
-                    await cur.execute("ALTER TABLE items ADD COLUMN repeat_every INT NULL")
+                    await cur.execute("ALTER TABLE items ADD COLUMN `repeat_every` INT NULL")
                 # Таблица git-проектов
                 await cur.execute("""
                     CREATE TABLE IF NOT EXISTS git_projects (
